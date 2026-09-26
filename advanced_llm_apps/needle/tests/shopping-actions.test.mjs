@@ -83,6 +83,51 @@ test("a product mention alone cannot add it to the list", () => {
   assert.deepEqual(actions.addItems, []);
 });
 
+test("a named item wanted from Coles is added without other catalogue items", () => {
+  const actions = validateShoppingActions({
+    transcript: "I want oat milk from Coles",
+    proposal: {
+      catalogueQuery: "oat milk",
+      addItems: ["Oat milk", "Bread"],
+      completedItems: [],
+    },
+    items: list,
+  });
+
+  assert.deepEqual(actions.stores, ["coles"]);
+  assert.deepEqual(actions.addItems, ["oat milk"]);
+});
+
+test("a named item wanted from Woolies adds only that item and keeps its retailer", () => {
+  const actions = validateShoppingActions({
+    transcript: "I need a 2L full cream milk from Woolworths",
+    proposal: {
+      catalogueQuery: "2L full cream milk",
+      addItems: ["Milk", "Chocolate"],
+      completedItems: [],
+    },
+    items: list,
+  });
+
+  assert.deepEqual(actions.stores, ["woolworths"]);
+  assert.deepEqual(actions.addItems, ["2L full cream milk"]);
+});
+
+test("searching for an item from a retailer does not add it to the list", () => {
+  const actions = validateShoppingActions({
+    transcript: "Find oat milk from Coles",
+    proposal: {
+      catalogueQuery: "oat milk",
+      addItems: ["Oat milk"],
+      completedItems: [],
+    },
+    items: list,
+  });
+
+  assert.deepEqual(actions.stores, ["coles"]);
+  assert.deepEqual(actions.addItems, []);
+});
+
 test("model suggestions cannot add unspoken or complete unlisted items", () => {
   const actions = validateShoppingActions({
     transcript: "I put the milk in my trolley",

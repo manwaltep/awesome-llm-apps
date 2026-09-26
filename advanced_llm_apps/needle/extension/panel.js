@@ -1,4 +1,8 @@
-import { isOfficialRetailerUrl, retailerSearchTerm } from "./catalogue.js";
+import {
+  isOfficialRetailerUrl,
+  retailersFromRequest,
+  retailerSearchTerm,
+} from "./catalogue.js";
 import {
   createVoiceIntroductionEvent,
   microphonePermissionMessage,
@@ -214,9 +218,18 @@ async function searchCatalogues(
   query,
   retailerQuery = query,
   permissionRequest = null,
+  requestedStores = retailersFromRequest(query),
 ) {
   const clean = String(query || "").trim();
   if (!clean) return;
+  if (!Array.isArray(requestedStores) || requestedStores.length === 0) {
+    setStatus(
+      searchStatus,
+      "Choose Woolworths, Coles, or both to search.",
+      true,
+    );
+    return;
+  }
   queryInput.value = clean;
   const cleanRetailerQuery = String(retailerQuery || clean).trim();
   setStatus(searchStatus, "Checking catalogue access…");
@@ -232,6 +245,7 @@ async function searchCatalogues(
     pendingCatalogueSearch = {
       query: clean,
       retailerQuery: cleanRetailerQuery,
+      stores: requestedStores,
     };
     retailerAccessButton.hidden = false;
     setStatus(
@@ -243,13 +257,20 @@ async function searchCatalogues(
   }
   retailerAccessButton.hidden = true;
   pendingCatalogueSearch = null;
-  setStatus(searchStatus, "Jev is searching both catalogue tabs…");
+  const storeLabels = requestedStores.map((store) =>
+    store === "coles" ? "Coles" : "Woolworths",
+  );
+  setStatus(
+    searchStatus,
+    `Jev is searching the ${storeLabels.join(" and ")} catalogue ${requestedStores.length === 1 ? "tab" : "tabs"}…`,
+  );
   offersNode.replaceChildren();
   try {
     const result = await chrome.runtime.sendMessage({
       type: "CATALOGUE_SEARCH",
       query: clean,
       retailerQuery: cleanRetailerQuery,
+      stores: requestedStores,
     });
     if (!result || result.error)
       throw new Error(result?.error || "Jev could not complete this search.");
@@ -296,7 +317,7 @@ async function applyVoiceTranscript(text, itemId) {
     intent = data;
     for (const name of intent.addItems || []) {
       if (addManualItem(name))
-        actionNote.textContent = `Jev added ${name} after your explicit request.`;
+        actionNote.textContent = `Jev added ${name} to your shopping list.`;
     }
     const completed = new Set(intent.completedItems || []);
     const justCompleted = shoppingList.filter(
@@ -319,7 +340,12 @@ async function applyVoiceTranscript(text, itemId) {
   ) {
     const retailQuery =
       intent?.catalogueQuery?.trim() || retailerSearchTerm(clean) || clean;
-    await searchCatalogues(clean, retailQuery);
+    await searchCatalogues(
+      clean,
+      retailQuery,
+      null,
+      intent?.stores || retailersFromRequest(clean),
+    );
   }
 }
 
@@ -588,6 +614,7 @@ searchForm.addEventListener("submit", (event) => {
     queryInput.value,
     retailerSearchTerm(queryInput.value) || queryInput.value,
     permissionRequest,
+    retailersFromRequest(queryInput.value),
   );
 });
 
@@ -620,6 +647,7 @@ retailerAccessButton.addEventListener("click", () => {
           pending.query,
           pending.retailerQuery,
           Promise.resolve(true),
+          pending.stores,
         );
       else setStatus(searchStatus, "Jev can now search both catalogues.");
     })

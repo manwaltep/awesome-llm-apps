@@ -28,6 +28,46 @@ export function retailerForUrl(rawUrl) {
   );
 }
 
+export function isRetailerSearchPage(store, rawUrl) {
+  if (!isOfficialRetailerUrl(store, rawUrl)) return false;
+  try {
+    const pathname = new URL(rawUrl).pathname.toLocaleLowerCase();
+    return store === "woolworths"
+      ? /^\/shop\/search\/products(?:\/|$)/.test(pathname)
+      : /^\/search(?:\/|$)/.test(pathname);
+  } catch {
+    return false;
+  }
+}
+
+export function retailersFromRequest(request) {
+  const text = String(request || "").toLocaleLowerCase();
+  const mentions = [];
+  for (const [store, pattern] of [
+    ["woolworths", /\bwoolworths?\b|\bwoolies?\b/gi],
+    ["coles", /\bcoles\b/gi],
+  ]) {
+    for (const match of text.matchAll(pattern)) {
+      const before = text.slice(Math.max(0, match.index - 48), match.index);
+      const negated =
+        /\b(?:not|never|without|except|rather than|instead of|don't|do not)(?:\s+\w+){0,3}\s*$/i.test(
+          before,
+        );
+      mentions.push({ store, negated });
+    }
+  }
+
+  if (!mentions.length) return ["woolworths", "coles"];
+  const selected = [
+    ...new Set(
+      mentions.filter((item) => !item.negated).map((item) => item.store),
+    ),
+  ];
+  if (selected.length) return selected;
+  const excluded = new Set(mentions.map((item) => item.store));
+  return ["woolworths", "coles"].filter((store) => !excluded.has(store));
+}
+
 export function retailerSearchUrl(store, query) {
   const term = String(query || "").trim();
   if (!RETAILER_DOMAINS[store]) throw new Error("Unsupported retailer.");

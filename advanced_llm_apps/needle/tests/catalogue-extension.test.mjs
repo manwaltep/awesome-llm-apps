@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   isOfficialRetailerUrl,
+  isRetailerSearchPage,
   normalizeRetailerCards,
+  retailersFromRequest,
   retailerSearchUrl,
   retailerSearchTerm,
 } from "../extension/catalogue.js";
@@ -26,6 +28,43 @@ test("cleans conversational framing for the retailer search URL", () => {
   assert.equal(
     retailerSearchTerm("specials on cheddar"),
     "specials on cheddar",
+  );
+});
+
+test("recognizes reusable search pages for both retailers", () => {
+  assert.equal(
+    isRetailerSearchPage(
+      "woolworths",
+      "https://www.woolworths.com.au/shop/search/products?searchTerm=milk",
+    ),
+    true,
+  );
+  assert.equal(
+    isRetailerSearchPage("coles", "https://www.coles.com.au/search?q=milk"),
+    true,
+  );
+  assert.equal(
+    isRetailerSearchPage("coles", "https://www.coles.com.au/catalogues"),
+    false,
+  );
+});
+
+test("limits a retailer-specific request to that store", () => {
+  assert.deepEqual(retailersFromRequest("Find oat milk from Coles"), ["coles"]);
+  assert.deepEqual(retailersFromRequest("Need bread at Woolies"), [
+    "woolworths",
+  ]);
+  assert.deepEqual(retailersFromRequest("Compare Coles and Woolworths"), [
+    "woolworths",
+    "coles",
+  ]);
+  assert.deepEqual(retailersFromRequest("Find oat milk"), [
+    "woolworths",
+    "coles",
+  ]);
+  assert.deepEqual(
+    retailersFromRequest("Find oat milk at Coles, not Woolies"),
+    ["coles"],
   );
 });
 

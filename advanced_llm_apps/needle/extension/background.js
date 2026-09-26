@@ -1,6 +1,7 @@
 import {
   extractRetailerPage,
   isOfficialRetailerUrl,
+  isRetailerSearchPage,
   normalizeRetailerCards,
   retailerSearchUrl,
 } from "./catalogue.js";
@@ -32,30 +33,38 @@ chrome.commands.onCommand.addListener(async (command) => {
 });
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const searchTabOperations = new Map();
+let searchTabStorageQueue = Promise.resolve();
 
-function isSearchPage(store, rawUrl) {
-  try {
-    const url = new URL(rawUrl);
-    return (
-      isOfficialRetailerUrl(store, rawUrl) &&
-      (store === "woolworths"
-        ? url.pathname.includes("/shop/search/products")
-        : url.pathname === "/search")
-    );
-  } catch {
-    return false;
-  }
+function rememberSearchTab(store, tabId) {
+  const update = searchTabStorageQueue
+    .catch(() => {})
+    .then(async () => {
+      const { jevSearchTabs = {} } =
+        await chrome.storage.session.get("jevSearchTabs");
+      await chrome.storage.session.set({
+        jevSearchTabs: { ...jevSearchTabs, [store]: tabId },
+      });
+    });
+  searchTabStorageQueue = update;
+  return update;
 }
 
-async function openSearchTab(store, query, previousId) {
+async function openSearchTabNow(store, query, previousId) {
   const url = retailerSearchUrl(store, query);
   let existing;
   if (previousId)
     existing = await chrome.tabs.get(previousId).catch(() => null);
-  const tab =
-    existing && isSearchPage(store, existing.url)
-      ? await chrome.tabs.update(existing.id, { url, active: false })
-      : await chrome.tabs.create({ url, active: false });
+  if (!isRetailerSearchPage(store, existing?.url)) {
+    const openTabs = await chrome.tabs.query({});
+    existing = openTabs
+      .filter((tab) => isRetailerSearchPage(store, tab.url))
+      .sort((left, right) => Number(right.active) - Number(left.active))[0];
+  }
+  const tab = existing?.id
+    ? await chrome.tabs.update(existing.id, { url, active: false })
+    : await chrome.tabs.create({ url, active: false });
+  await rememberSearchTab(store, tab.id);
   const deadline = Date.now() + 20000;
   let ready = tab;
   while (Date.now() < deadline) {
@@ -65,6 +74,22 @@ async function openSearchTab(store, query, previousId) {
   }
   await pause(900);
   return ready;
+}
+
+function openSearchTab(store, query, previousId) {
+  const previousOperation = searchTabOperations.get(store) || Promise.resolve();
+  const operation = previousOperation
+    .catch(() => null)
+    .then(async () => {
+      const { jevSearchTabs = {} } =
+        await chrome.storage.session.get("jevSearchTabs");
+      return openSearchTabNow(store, query, jevSearchTabs[store] || previousId);
+    });
+  searchTabOperations.set(store, operation);
+  return operation.finally(() => {
+    if (searchTabOperations.get(store) === operation)
+      searchTabOperations.delete(store);
+  });
 }
 
 async function readCardsWithRetry(store, tab) {
@@ -85,7 +110,7 @@ async function readCardsWithRetry(store, tab) {
   return [];
 }
 
-async function searchCatalogues(query, retailerQuery = query) {
+async function searchCatalogues(query, retailerQuery = query, requestedStores) {
   if (typeof query !== "string" || !query.trim() || query.length > 400)
     return { error: "Describe a product or offer to search for." };
   if (
@@ -94,17 +119,29 @@ async function searchCatalogues(query, retailerQuery = query) {
     retailerQuery.length > 200
   )
     return { error: "Jev could not prepare an official catalogue search." };
+  const supportedStores = ["woolworths", "coles"];
+  const stores = Array.isArray(requestedStores)
+    ? [
+        ...new Set(
+          requestedStores.filter((store) => supportedStores.includes(store)),
+        ),
+      ]
+    : supportedStores;
+  if (!stores.length)
+    return { error: "Choose Woolworths, Coles, or both for this search." };
   const { server = "http://127.0.0.1:4199", token = "" } =
     await chrome.storage.local.get(["server", "token"]);
   const { jevSearchTabs = {} } =
     await chrome.storage.session.get("jevSearchTabs");
+  const storeLabels = stores.map((store) =>
+    store === "coles" ? "Coles" : "Woolworths",
+  );
   chrome.runtime
     .sendMessage({
       type: "CATALOGUE_PROGRESS",
-      text: "Opening official Woolworths and Coles search pages…",
+      text: `Opening the official ${storeLabels.join(" and ")} search ${stores.length === 1 ? "tab" : "tabs"}…`,
     })
     .catch(() => {});
-  const stores = ["woolworths", "coles"];
   const tabs = await Promise.all(
     stores.map((store) =>
       openSearchTab(store, retailerQuery.trim(), jevSearchTabs[store]),
@@ -119,7 +156,19 @@ async function searchCatalogues(query, retailerQuery = query) {
       return readCardsWithRetry(store, tab);
     }),
   );
-  await chrome.storage.session.set({ jevSearchTabs: updatedTabIds });
+  if (Object.keys(updatedTabIds).length) {
+    const update = searchTabStorageQueue
+      .catch(() => {})
+      .then(async () => {
+        const { jevSearchTabs: latestTabs = {} } =
+          await chrome.storage.session.get("jevSearchTabs");
+        await chrome.storage.session.set({
+          jevSearchTabs: { ...latestTabs, ...updatedTabIds },
+        });
+      });
+    searchTabStorageQueue = update;
+    await update;
+  }
   const cards = [];
   let totalTextLength = 0;
   for (const card of cardsByStore.flat()) {
@@ -136,7 +185,7 @@ async function searchCatalogues(query, retailerQuery = query) {
   chrome.runtime
     .sendMessage({
       type: "CATALOGUE_PROGRESS",
-      text: `Jev is comparing ${cards.length} visible catalogue products…`,
+      text: `Jev is comparing ${cards.length} visible ${storeLabels.join(" and ")} catalogue products…`,
     })
     .catch(() => {});
   let response;
@@ -207,7 +256,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
   if (message.type === "CATALOGUE_SEARCH") {
-    searchCatalogues(message.query, message.retailerQuery).then(
+    searchCatalogues(message.query, message.retailerQuery, message.stores).then(
       sendResponse,
       () =>
         sendResponse({
