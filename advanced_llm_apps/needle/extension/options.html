@@ -12,12 +12,13 @@
           height="36"
         />needle.</span
       >
-      <h1>A new way to find.<br /><em>On your own pages.</em></h1>
+      <h1>Your grocery companion.<br /><em>Across your tabs.</em></h1>
       <p>
         Start <code>npm run dev</code> from the Needle project folder, then
-        connect to <code>http://127.0.0.1:4199</code>. Add your Gateway API key
-        to the project’s <code>.env</code> file. Leave the access token blank
-        for local use.
+        connect to <code>http://127.0.0.1:4199</code>. Add your Vercel AI
+        Gateway key and OpenAI API key to the project’s server-side
+        <code>.env</code> file. Neither key belongs in the extension. Leave the
+        app access token blank for local use.
       </p>
       <form id="settings">
         <label
@@ -39,13 +40,14 @@
       <hr />
       <p>
         Click the Needle toolbar icon on a webpage, or press
-        <strong>⌘⇧F</strong> on Mac / <strong>Ctrl+Shift+F</strong> elsewhere.
+        <strong>⌘⇧Y</strong> on Mac / <strong>Ctrl+Shift+Y</strong> elsewhere to
+        search the current page with Needle.
       </p>
       <small
-        >Search sends the page's readable passages and your query to your
-        server, then to Jev through Vercel AI Gateway. Chrome system pages and
-        built-in PDF viewers are not supported. For selectable PDF text, copy it
-        into the React app using “Bring your own text”.</small
+        >Jev reads visible product details only from Woolworths and Coles pages
+        after you grant access. Voice uses a separate live speech connection;
+        the transcript is shown in the side panel. Chrome system pages and
+        built-in PDF viewers are not supported by page search.</small
       >
     </main>
     <script src="options.js"></script>

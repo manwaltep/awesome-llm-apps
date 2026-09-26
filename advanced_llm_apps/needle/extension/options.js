@@ -29,7 +29,8 @@ form.addEventListener("submit", async (event) => {
       server: url.origin,
       token: token.value.trim(),
     });
-    status.textContent = "Saved. Open a webpage and click the Needle icon.";
+    status.textContent =
+      "Saved. Open the Needle panel to search the catalogues.";
   } catch (error) {
     status.textContent = error.message;
   }

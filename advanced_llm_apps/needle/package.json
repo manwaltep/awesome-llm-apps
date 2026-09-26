@@ -1,6 +1,6 @@
 {
   "name": "needle-meaning-find",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,17 +14,18 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "lucide-react": "^0.468.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "lucide-react": "^0.468.0"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
-    "vite": "^6.1.0",
     "@vitejs/plugin-react": "^4.3.4",
     "fflate": "^0.8.2",
-    "prettier": "^3.6.2"
+    "prettier": "^3.6.2",
+    "vite": "^6.1.0"
   },
-  "description": "Semantic find-in-page with Jev via Vercel AI Gateway",
+  "description": "Woolworths and Coles catalogue search with Jev, Voice, and a shared shopping list",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=22.12.0"

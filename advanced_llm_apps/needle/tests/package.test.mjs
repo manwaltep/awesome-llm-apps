@@ -10,9 +10,14 @@ test("extension package contains all runtime files and icons but no backend or s
   );
   const manifest = JSON.parse(strFromU8(zip["manifest.json"]));
   assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.side_panel.default_path, "panel.html");
   for (const file of [
     manifest.background.service_worker,
     manifest.options_page,
+    manifest.side_panel.default_path,
+    "panel.js",
+    "panel.css",
+    "catalogue.js",
     "content.js",
     "text-range.js",
     ...Object.values(manifest.icons),

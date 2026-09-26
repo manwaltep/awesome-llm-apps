@@ -4,7 +4,10 @@ import { readFile, stat } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
 import searchHandler from "../api/search.js";
 import healthHandler from "../api/health.js";
+import shoppingIntentHandler from "../api/shopping-intent.js";
 import { accessError, MAX_REQUEST_BYTES } from "./http.mjs";
+import WebSocket, { WebSocketServer } from "ws";
+import { attachRealtime } from "./realtime.mjs";
 const production = process.argv.includes("--production");
 const vite = production
   ? null
@@ -24,8 +27,10 @@ const server = http.createServer(async (req, res) => {
   try {
     const path = req.url.split("?")[0];
     if (path === "/api/health") return healthHandler(req, res);
-    if (path === "/api/search") {
-      if (req.method !== "POST") return searchHandler(req, res);
+    if (path === "/api/search" || path === "/api/shopping-intent") {
+      const handler =
+        path === "/api/search" ? searchHandler : shoppingIntentHandler;
+      if (req.method !== "POST") return handler(req, res);
       const denied = accessError(req.headers);
       if (denied)
         return res.status(denied.status).json({ error: denied.error });
@@ -38,7 +43,7 @@ const server = http.createServer(async (req, res) => {
         chunks.push(chunk);
       }
       req.body = Buffer.concat(chunks).toString();
-      return await searchHandler(req, res);
+      return await handler(req, res);
     }
     if (vite) return vite.middlewares(req, res);
     const base = resolve("dist");
@@ -72,6 +77,7 @@ const server = http.createServer(async (req, res) => {
     else res.end();
   }
 });
+attachRealtime(server, { WebSocketServer, WebSocket });
 server.listen(port, "127.0.0.1", () =>
   console.log(`Needle running at http://127.0.0.1:${port}`),
 );

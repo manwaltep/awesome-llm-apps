@@ -11,6 +11,10 @@ const manifest = JSON.parse(
 const entries = [
   "manifest.json",
   "background.js",
+  "catalogue.js",
+  "panel.html",
+  "panel.js",
+  "panel.css",
   "content.js",
   "text-range.js",
   "options.html",

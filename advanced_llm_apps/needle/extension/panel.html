@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Needle groceries</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header class="topbar">
+        <img src="icons/needle.svg" alt="" width="34" height="34" />
+        <div class="brand"><strong>needle.</strong><span>groceries</span></div>
+        <button
+          class="settings-button"
+          id="settings"
+          type="button"
+          aria-label="Open connection settings"
+        >
+          ⚙
+        </button>
+      </header>
+
+      <section class="search-section" aria-labelledby="search-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">TEXT SEARCH AGENT</p>
+            <h1 id="search-title">Ask Jev to find it</h1>
+          </div>
+          <span class="jev-pill"><i></i> Jev</span>
+        </div>
+        <form id="search-form" class="search-form">
+          <label class="sr-only" for="query"
+            >What should Jev find in Woolworths and Coles?</label
+          >
+          <input
+            id="query"
+            name="query"
+            maxlength="400"
+            placeholder="e.g. oat milk under $4"
+            autocomplete="off"
+          />
+          <button
+            class="search-button"
+            type="submit"
+            aria-label="Search both catalogues"
+          >
+            ↗
+          </button>
+        </form>
+        <p class="subtle">
+          Searches official Woolworths and Coles pages in separate tabs.
+        </p>
+        <p class="status" id="search-status" role="status" aria-live="polite">
+          Ready when you are.
+        </p>
+        <div class="offers" id="offers" aria-live="polite">
+          <div class="empty-state">
+            <span class="empty-spark">✳</span>
+            <p>Jev’s sourced catalogue matches will appear here.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="voice-section" aria-labelledby="voice-title">
+        <div class="voice-copy">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">LIVE SPEECH-TO-SPEECH</p>
+              <h2 id="voice-title">Voice</h2>
+            </div>
+            <span class="voice-wave" aria-hidden="true"
+              ><i></i><i></i><i></i><i></i><i></i
+            ></span>
+          </div>
+          <p class="subtle">
+            Voice speaks with you. Jev separately searches the transcript.
+          </p>
+        </div>
+        <button class="voice-button" id="voice-toggle" type="button">
+          <span class="mic-icon" aria-hidden="true">●</span>
+          <span id="voice-button-label">Start voice</span>
+        </button>
+        <p
+          class="voice-status"
+          id="voice-status"
+          role="status"
+          aria-live="polite"
+        >
+          Microphone is off.
+        </p>
+        <div class="transcript" id="transcript" aria-live="polite">
+          <p class="transcript-placeholder">
+            Your live transcript and Voice replies will show here.
+          </p>
+        </div>
+      </section>
+
+      <section class="list-section" aria-labelledby="list-title">
+        <div class="section-heading compact list-heading">
+          <div>
+            <p class="eyebrow">SAVED ON THIS CHROME PROFILE</p>
+            <h2 id="list-title">
+              Shopping list <span id="list-count">0</span>
+            </h2>
+          </div>
+          <span class="list-sync">Shared across tabs</span>
+        </div>
+        <ul class="shopping-list" id="shopping-list"></ul>
+        <form id="add-form" class="add-form">
+          <label class="sr-only" for="new-item">Add an item to your list</label>
+          <input
+            id="new-item"
+            maxlength="100"
+            placeholder="Add an item manually…"
+            autocomplete="off"
+          />
+          <button type="submit" aria-label="Add item">+</button>
+        </form>
+        <div
+          class="action-note"
+          id="action-note"
+          role="status"
+          aria-live="polite"
+        >
+          You control every list change.
+        </div>
+        <label class="notes-label" for="notes">Notes</label>
+        <textarea
+          id="notes"
+          rows="2"
+          maxlength="1200"
+          placeholder="Aisle, brand, or anything to remember…"
+        ></textarea>
+      </section>
+
+      <footer class="panel-footer">
+        <span>Jev results link to the original retailer pages.</span>
+        <a href="#" id="page-search">Find on this page</a>
+      </footer>
+    </main>
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>

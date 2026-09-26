@@ -1,16 +1,28 @@
 {
   "manifest_version": 3,
-  "name": "Needle: A new way to find",
-  "version": "1.1.1",
-  "description": "Find ideas in the page, even when you don't know the exact words. Powered by TypeSafe Jev.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "name": "Needle: Grocery catalogue companion",
+  "version": "1.2.0",
+  "description": "Search Woolworths and Coles with Jev, keep a shared shopping list, and talk with Voice.",
+  "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
   "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
-  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "optional_host_permissions": [
+    "https://woolworths.com.au/*",
+    "https://*.woolworths.com.au/*",
+    "https://coles.com.au/*",
+    "https://*.coles.com.au/*",
+    "https://*/*",
+    "http://*/*"
+  ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": { "default_path": "panel.html" },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*"
   },
   "action": {
-    "default_title": "Find with Needle",
+    "default_title": "Open Needle shopping panel",
     "default_icon": {
       "16": "icons/needle-16.png",
       "32": "icons/needle-32.png"
@@ -18,12 +30,12 @@
   },
   "options_page": "options.html",
   "commands": {
-    "_execute_action": {
+    "needle-search-page": {
       "suggested_key": {
-        "default": "Ctrl+Shift+F",
-        "mac": "Command+Shift+F"
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
       },
-      "description": "Find with Needle"
+      "description": "Find meaning on this page with Needle"
     }
   },
   "icons": {
@@ -32,5 +44,5 @@
     "48": "icons/needle-48.png",
     "128": "icons/needle-128.png"
   },
-  "minimum_chrome_version": "105"
+  "minimum_chrome_version": "116"
 }
