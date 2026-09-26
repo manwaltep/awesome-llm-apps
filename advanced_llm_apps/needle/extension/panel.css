@@ -251,9 +251,14 @@ textarea::placeholder {
   margin-top: 5px;
   color: #365c3e;
 }
-.offer-card a {
-  display: inline-block;
+.offer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-top: 7px;
+}
+.offer-card a {
   color: #266049;
   font-size: 10px;
   font-weight: 700;
@@ -261,6 +266,15 @@ textarea::placeholder {
 }
 .offer-card a:hover {
   text-decoration: underline;
+}
+.offer-add {
+  padding: 5px 8px;
+  border: 1px solid #d8e2d1;
+  border-radius: 8px;
+  color: #28523d;
+  background: #edf5e5;
+  font-size: 10px;
+  font-weight: 750;
 }
 .voice-section {
   display: grid;

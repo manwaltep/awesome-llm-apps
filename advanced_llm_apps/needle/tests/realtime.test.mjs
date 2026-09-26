@@ -1,13 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { realtimeSessionUpdate } from "../server/realtime.mjs";
 import {
   catalogueQueryForVoiceTurn,
   classifyBareVoiceReply,
-  createVoiceClarificationEvent,
-  createVoiceCatalogueResultsEvent,
   createVoiceIntroductionEvent,
-  createVoiceListCheckEvent,
   microphonePermissionMessage,
   needsMicrophonePermissionTab,
   prepareVoiceCatalogueOffers,
@@ -28,7 +26,8 @@ test("voice is speech-to-speech and exposes a separate visible transcript", () =
   assert.equal(event.session.audio.output.voice, "marin");
   assert.equal(event.session.audio.input.turn_detection.create_response, false);
   assert.match(event.session.instructions, /Jev/i);
-  assert.match(event.session.instructions, /explicitly asks/i);
+  assert.match(event.session.instructions, /Never read catalogue information/i);
+  assert.match(event.session.instructions, /explicitly requests? it after the shopper asks/i);
 });
 
 test("Voice starts with an audio introduction that explains Jev and list actions", () => {
@@ -37,11 +36,29 @@ test("Voice starts with an audio introduction that explains Jev and list actions
   assert.deepEqual(event.response.input, []);
   assert.deepEqual(event.response.output_modalities, ["audio"]);
   assert.match(event.response.instructions, /Woolworths and Coles/i);
-  assert.match(event.response.instructions, /shared shopping list/i);
-  assert.match(event.response.instructions, /read it back whenever you ask/i);
+  assert.match(event.response.instructions, /results and list will show here/i);
+  assert.match(event.response.instructions, /Do not read catalogue results/i);
+  assert.doesNotMatch(event.response.instructions, /read it back/i);
 });
 
-test("Jev results are passed to Voice as sourced choices without repeat confirmation", () => {
+test("Voice stays quiet for catalogue results and only reads the list on request", () => {
+  const panel = readFileSync(
+    new URL("../extension/panel.js", import.meta.url),
+    "utf8",
+  );
+  const voice = readFileSync(
+    new URL("../extension/voice.js", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(panel, /createVoiceCatalogueResultsEvent/);
+  assert.doesNotMatch(panel, /createVoiceClarificationEvent|queueVoiceResponse/);
+  assert.match(panel, /createVoiceListCheckEvent\(shoppingList\)/);
+  assert.match(panel, /\.list-section.*scrollIntoView/s);
+  assert.doesNotMatch(voice, /Read back this list|Read Jev's sourced matches/);
+  assert.match(voice, /shopper explicitly asked you to check the Needle shopping list/i);
+});
+
+test("local offer choices retain the sourced details used for silent list additions", () => {
   const offers = [
     {
       title: "Premium Beef Steak 500g",
@@ -51,54 +68,11 @@ test("Jev results are passed to Voice as sourced choices without repeat confirma
     },
     { title: "Rump Steak", store: "woolworths", detail: "$10 per pack" },
   ];
-  const event = createVoiceCatalogueResultsEvent({
-    query: "steak",
-    offers,
-    productsSeen: 40,
-  });
-  assert.equal(event.type, "response.create");
-  assert.deepEqual(event.response.output_modalities, ["audio"]);
-  assert.match(event.response.instructions, /Premium Beef Steak 500g/);
-  assert.match(event.response.instructions, /Woolworths/);
-  assert.match(
-    event.response.instructions,
-    /ask which number, name, or retailer/i,
-  );
-  assert.match(
-    event.response.instructions,
-    /do not ask them to confirm again/i,
-  );
-  assert.match(event.response.instructions, /do not say it was added/i);
-  assert.doesNotMatch(event.response.instructions, /secret-path/);
   const prepared = prepareVoiceCatalogueOffers(offers);
   assert.equal(prepared.length, 2);
+  assert.equal(prepared[0].title, "Premium Beef Steak 500g");
+  assert.equal(prepared[0].store, "Coles");
   assert.equal(prepared[0].price, "$12");
-});
-
-test("Voice reads the Needle list only in an explicitly requested check", () => {
-  const event = createVoiceListCheckEvent([
-    {
-      name: "Allen's Peaches and Cream",
-      store: "Woolworths",
-      price: "$2.50",
-      checked: false,
-    },
-  ]);
-  assert.equal(event.type, "response.create");
-  assert.deepEqual(event.response.output_modalities, ["audio"]);
-  assert.match(event.response.instructions, /explicitly asked/i);
-  assert.match(event.response.instructions, /Allen's Peaches and Cream/);
-  assert.match(event.response.instructions, /Woolworths/);
-  assert.match(event.response.instructions, /\$2.50/);
-});
-
-test("short clarifications contain only the one needed question", () => {
-  const event = createVoiceClarificationEvent(
-    "ask what product name they want Jev to search for.",
-  );
-  assert.deepEqual(event.response.output_modalities, ["audio"]);
-  assert.match(event.response.instructions, /one short sentence/i);
-  assert.match(event.response.instructions, /what product name/i);
 });
 
 test("catalogue result replies add only the explicitly selected offer", () => {

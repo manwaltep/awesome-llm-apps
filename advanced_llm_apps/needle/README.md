@@ -8,8 +8,8 @@ Needle is a Chrome side-panel shopping companion built on the open-source Jev se
 - **Find the sentence that matters.** Bright green highlights the strongest sentence; pale green keeps the surrounding context visible.
 - **Stay on the page.** Open the Chrome extension on a webpage and jump between matching passages.
 - **Search both catalogues.** Jev ranks visible product cards from official Woolworths and Coles pages in separate tabs and links results to their source pages.
-- **Talk with Voice.** Voice is live speech-to-speech. It gives a short introduction, reads Jev's sourced catalogue matches, and asks only the brief question needed to choose between them. Adding an identified item updates the visible list without a spoken repeat.
-- **Keep one shopping list across tabs.** The list and separate notes field are stored in the current Chrome profile. Items keep their retailer and price when supplied. Ask Voice to read back the list whenever you want a confirmation check. Needle does not add products to a retailer checkout cart.
+- **Talk with Voice.** Voice is live speech-to-speech. It gives one short introduction, then listens while Jev searches and displays sourced matches. Voice stays silent after the introduction except when you explicitly ask it to check the list.
+- **Keep one shopping list across tabs.** The list and separate notes field are stored in the current Chrome profile. Items keep their retailer and price when supplied. A spoken list check reads the list aloud and scrolls it into view. Needle does not add products to a retailer checkout cart.
 - **Explore your own text.** Paste an article, policy, or document into the React app, or start with one of the included examples.
 - **Read the original source.** Results point to existing text, with a relevance ranking and a copy button in the React app.
 
@@ -17,8 +17,8 @@ Needle is a Chrome side-panel shopping companion built on the open-source Jev se
 
 1. The extension opens the official Woolworths and Coles search pages in separate tabs and extracts visible product-card text after you grant access to those sites.
 2. The text query and product passages go to the Needle backend. TypeSafe Jev ranks them and selects relevant original source text.
-3. Voice uses `gpt-realtime-2.1` for direct speech-to-speech. `gpt-4o-mini-transcribe` supplies the transcript shown in the app; Jev receives text only. Automatic replies are disabled so the app can keep Voice quiet while Jev searches, then pass sourced matches to Voice to read aloud.
-4. Naming a unique catalogue match adds only that item to Needle's list, with its retailer and price when available. A vague “yes” when multiple results were found prompts one short clarification and never becomes a catalogue query. Simple list additions, check-offs and explicit list checks are handled locally, without a separate intent-model call. Voice reads the list only when asked. Needle does not edit retailer checkout carts.
+3. Voice uses `gpt-realtime-2.1` for speech-to-speech. `gpt-4o-mini-transcribe` supplies the transcript shown in the app; Jev receives text only. Automatic replies are disabled. The app requests one introduction and reads the list aloud only after an explicit list-check request; catalogue results are never read aloud.
+4. Naming a catalogue item to add makes Jev match against the current sourced offers; Needle adds Jev's top matching result, with its retailer and price when available. Each result also has an **Add to list** button, and list items can be removed directly. A bare “yes” is ignored rather than searched. Simple list additions, removals and check-offs are handled locally, without a separate intent-model call. An explicit list check reads the locally stored list aloud and scrolls it into view. Needle does not edit retailer checkout carts.
 
 The backend sends Jev evaluations to TypeSafe's [System One API](https://docs.typesafe.ai/api). If you use a Vercel AI Gateway key instead, it routes through [Vercel AI Gateway's evaluation API](https://vercel.com/docs/ai-gateway/modalities/evaluation). Jev selects source sentences rather than generating an answer. Results with relevance scores of at least `0.58` are included; this is a ranking threshold, not a guarantee that every relevant passage was found.
 
@@ -80,15 +80,15 @@ The extension side panel stays open as you change tabs. Press **Cmd+Shift+Y** on
 
 Type a product request such as “oat milk under $4” and choose **Search**. Needle opens or updates separate Woolworths and Coles search tabs while keeping the side panel open. Jev ranks visible product cards and shows only matches over its relevance threshold. Select **Open retailer page** to continue on the source site.
 
-Product layouts change. If Jev reports no readable product cards, inspect the retailer tabs and search again. Prices and offers can change on the source site; Needle shows only text captured from those pages. For a voice search, Voice reads up to three top matches and asks which one you mean. A clear choice adds that exact match to Needle's list without a spoken success message. This does not place anything in a retailer's checkout cart.
+Product layouts change. If Jev reports no readable product cards, inspect the retailer tabs and search again. Prices and offers can change on the source site; Needle shows only text captured from those pages. Jev matches remain visible in the panel; Voice does not read them aloud or ask questions. Add a specific result with its **Add to list** button, or name the product or retailer in your voice request. If Jev returns several close matches for a spoken add, Needle uses Jev's highest-ranked match. This does not place anything in a retailer's checkout cart.
 
 ### Speak with Voice
 
-Choose **Start voice** and allow microphone access. Once the **Connected** badge appears, Voice gives a short introduction and explains how Jev and the shopping list work. Voice replies aloud and its transcript appears in the panel. Jev separately searches the text transcript; it does not receive speech audio or view the page. Needle sends Jev the full structured product details it has extracted from the current catalogue offers. When you name an item to add, Jev matches it against those sourced offers and Needle saves the exact title, retailer, and price from that offer. A vague “this one” works when one match is visible; if several could match, say the name or number. A bare “yes” with multiple matches asks one short clarification and is never sent to Jev. To hear a confirmation check of your list, ask Voice to read it back.
+Choose **Start voice** and allow microphone access. Voice gives one short introduction, then listens and transcribes your requests. Jev searches the text transcript and displays catalogue matches without reading them aloud. When you name an item to add, Jev matches it against the current sourced offers and Needle saves the exact title, retailer, and price. Voice stays silent after its introduction unless you explicitly ask it to check the list; then it briefly reads the current list. Jev's displayed results and the updated list show searches and item changes, so no spoken clarification or add/remove confirmation is needed.
 
 ### Shopping list and notes
 
-The list is stored in `chrome.storage.local` and shared across tabs in the same Chrome profile. You can add, remove, or check off items manually. A direct request to add one identified item adds only that item and keeps its retailer and price when provided. Voice reads the list back only when you explicitly ask for a check. It may check an item off only after you say you found it in store, picked it up, bought it, or put that listed item in a trolley/cart/basket. Notes are a separate freeform field.
+The list is stored in `chrome.storage.local` and shared across tabs in the same Chrome profile. You can add, remove, or check off items manually. Choose **Add to list** on a catalogue result to save that exact title, retailer, and price; use the remove control to remove a list item. Voice can also add a named item or remove a named item silently. Ask Voice for a list check only when you want it read aloud; the list also scrolls into view. Voice may check an item off only after you say you found it in store, picked it up, bought it, or put that listed item in a trolley/cart/basket. Notes are a separate freeform field.
 
 ### On a webpage
 
@@ -182,7 +182,7 @@ Stop the dev server before running preview on the same port, or choose another `
 
 `npm run package:extension` produces:
 
-- `artifacts/needle-extension-v1.2.7.zip` for release attachment.
+- `artifacts/needle-extension-v1.2.9.zip` for release attachment.
 - `public/needle-extension.zip` for the app’s download link; production builds copy it to `dist/`.
 
 ZIP packaging uses an explicit file allowlist and does not include the backend, `.env`, dependencies or development output. Build artifacts are not committed.

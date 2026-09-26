@@ -4,22 +4,23 @@ import {
   retailerSearchTerm,
 } from "./catalogue.js";
 import {
-  createVoiceClarificationEvent,
-  createVoiceCatalogueResultsEvent,
   createVoiceIntroductionEvent,
-  createVoiceListCheckEvent,
   catalogueQueryForVoiceTurn,
   classifyBareVoiceReply,
   microphonePermissionMessage,
   needsMicrophonePermissionTab,
+  createVoiceListCheckEvent,
   prepareVoiceCatalogueOffers,
   prepareVisibleCatalogueOffers,
   resolveJevVisibleCatalogueMatch,
   resolveVoiceCatalogueConfirmation,
 } from "./voice.js";
 import {
+  isGenericListRemoval,
   isGenericListReference,
   parseVoiceShoppingActions,
+  parseVoiceShoppingRemovals,
+  isVoiceShoppingRemoval,
 } from "./shopping.js";
 
 const $ = (selector) => document.querySelector(selector);
@@ -59,13 +60,12 @@ let playingSources = new Set();
 let sessionReady = false;
 let startingVoice = false;
 let voiceAttempt = 0;
-let introPending = false;
+let activeVoiceResponse = null;
+let pendingListReadback = false;
 let pendingCatalogueSearch = null;
 let receivedItems = new Set();
 let pendingVoiceOffers = [];
 let visibleCatalogueOffers = [];
-let voiceResponseInProgress = false;
-let queuedVoiceResponse = null;
 let catalogueSearchSequence = 0;
 let voiceTurnSequence = 0;
 let awaitingSearchTerms = false;
@@ -205,6 +205,82 @@ function addManualItem(name, metadata = {}) {
   return true;
 }
 
+function addCatalogueOfferToList(offer) {
+  if (!offer) return false;
+  const store = offer.store === "coles" ? "Coles" : "Woolworths";
+  const price =
+    offer.price ||
+    offer.detail?.match(/\$\s?\d+(?:[.,]\d{1,2})?/)?.[0] ||
+    "";
+  return addManualItem(offer.title, { store, price });
+}
+
+function bestJevOffer(matches, offers) {
+  for (const match of Array.isArray(matches) ? matches : []) {
+    const index = Number(String(match?.id || "").replace(/^b/, ""));
+    if (Number.isInteger(index) && offers[index]) return offers[index];
+  }
+  return null;
+}
+
+function preferredOfferForTranscript(transcript, offers) {
+  const choices = Array.isArray(offers) ? offers : [];
+  if (!choices.length) return null;
+  const mentionsRetailer = /\b(?:coles|woolworths|woolies)\b/i.test(
+    String(transcript || ""),
+  );
+  const requestedStores = mentionsRetailer
+    ? retailersFromRequest(transcript).map((store) =>
+        store === "coles" ? "Coles" : "Woolworths",
+      )
+    : [];
+  const scopedChoices = requestedStores.length
+    ? choices.filter((offer) => requestedStores.includes(offer.store))
+    : choices;
+  if (!scopedChoices.length) return null;
+  const resolved = resolveVoiceCatalogueConfirmation(
+    transcript,
+    scopedChoices,
+  );
+  if (resolved.kind === "accepted") return resolved.offer;
+  if (
+    resolved.kind === "ambiguous" ||
+    isGenericListReference(transcript) ||
+    isGenericListRemoval(transcript)
+  )
+    return scopedChoices[0];
+  return null;
+}
+
+function removeCatalogueOfferFromList(offer) {
+  if (!offer?.title) return false;
+  const name = String(offer.title).normalize("NFKC").toLocaleLowerCase();
+  const store = offer.store === "coles" ? "Coles" : "Woolworths";
+  const match = shoppingList.find(
+    (item) =>
+      item.name.normalize("NFKC").toLocaleLowerCase() === name &&
+      (!item.store || item.store === store),
+  );
+  if (!match) return false;
+  shoppingList = shoppingList.filter((item) => item.id !== match.id);
+  chrome.storage.local.set({ shoppingList });
+  renderList();
+  return true;
+}
+
+function sendPendingListReadback() {
+  if (
+    !pendingListReadback ||
+    !sessionReady ||
+    activeVoiceResponse ||
+    voiceSocket?.readyState !== WebSocket.OPEN
+  )
+    return;
+  pendingListReadback = false;
+  activeVoiceResponse = "list-check";
+  voiceSocket.send(JSON.stringify(createVoiceListCheckEvent(shoppingList)));
+}
+
 function safeUrl(store, rawUrl) {
   return isOfficialRetailerUrl(store, rawUrl) ? new URL(rawUrl).href : null;
 }
@@ -249,6 +325,11 @@ function renderOffers(offers, productsSeen = 0) {
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     link.textContent = "Open retailer page ↗";
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "offer-add";
+    addButton.textContent = "Add to list";
+    addButton.addEventListener("click", () => addCatalogueOfferToList(offer));
     card.append(top, title, detail);
     if (
       offer.focus?.text &&
@@ -260,7 +341,10 @@ function renderOffers(offers, productsSeen = 0) {
       focus.textContent = `Jev matched: ${offer.focus.text}`;
       card.append(focus);
     }
-    card.append(link);
+    const actions = document.createElement("div");
+    actions.className = "offer-actions";
+    actions.append(link, addButton);
+    card.append(actions);
     offersNode.append(card);
   }
 }
@@ -280,14 +364,13 @@ async function searchCatalogues(
   retailerQuery = query,
   permissionRequest = null,
   requestedStores = retailersFromRequest(query),
-  { announceToVoice = false, voiceTurnId = null } = {},
+  { voiceTurnId = null } = {},
 ) {
   const clean = String(query || "").trim();
   if (!clean) return;
   const searchId = ++catalogueSearchSequence;
   pendingVoiceOffers = [];
   visibleCatalogueOffers = [];
-  queuedVoiceResponse = null;
   awaitingSearchTerms = false;
   awaitingSearchStores = [];
   if (!Array.isArray(requestedStores) || requestedStores.length === 0) {
@@ -314,7 +397,6 @@ async function searchCatalogues(
       query: clean,
       retailerQuery: cleanRetailerQuery,
       stores: requestedStores,
-      announceToVoice,
       voiceTurnId,
     };
     retailerAccessButton.hidden = false;
@@ -354,7 +436,7 @@ async function searchCatalogues(
         : "Search complete. No catalogue match passed Jev’s relevance threshold.",
     );
     if (
-      announceToVoice &&
+      voiceTurnId !== null &&
       sessionReady &&
       voiceTurnId === voiceTurnSequence &&
       voiceSocket?.readyState === WebSocket.OPEN
@@ -363,43 +445,11 @@ async function searchCatalogues(
       if (pendingVoiceOffers.length) awaitingSearchStores = [];
       else awaitingSearchStores = [...requestedStores];
       awaitingSearchTerms = pendingVoiceOffers.length === 0;
-      queueVoiceResponse(
-        createVoiceCatalogueResultsEvent({
-          query: clean,
-          offers: result.offers || [],
-          productsSeen: result.productsSeen || 0,
-        }),
-        voiceTurnId,
-      );
     }
   } catch (error) {
     if (searchId !== catalogueSearchSequence) return;
     setStatus(searchStatus, error.message, true);
   }
-}
-
-function queueVoiceResponse(event, voiceTurnId) {
-  if (
-    !sessionReady ||
-    voiceTurnId !== voiceTurnSequence ||
-    voiceSocket?.readyState !== WebSocket.OPEN
-  )
-    return;
-  queuedVoiceResponse = { event, voiceTurnId };
-  flushQueuedVoiceResponse();
-}
-
-function flushQueuedVoiceResponse() {
-  if (
-    voiceResponseInProgress ||
-    !queuedVoiceResponse ||
-    !sessionReady ||
-    queuedVoiceResponse.voiceTurnId !== voiceTurnSequence ||
-    voiceSocket?.readyState !== WebSocket.OPEN
-  )
-    return;
-  voiceSocket.send(JSON.stringify(queuedVoiceResponse.event));
-  queuedVoiceResponse = null;
 }
 
 async function applyVoiceTranscript(text, itemId) {
@@ -412,57 +462,63 @@ async function applyVoiceTranscript(text, itemId) {
   addTranscript("You", clean);
   const localActions = parseVoiceShoppingActions(clean, shoppingList);
   const genericListReference = isGenericListReference(clean);
+  const bareReply = classifyBareVoiceReply(clean);
   if (localActions.listCheck) {
-    queueVoiceResponse(createVoiceListCheckEvent(shoppingList), voiceTurnId);
+    $(".list-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    actionNote.textContent = "Your shopping list is shown below.";
+    pendingListReadback = true;
+    sendPendingListReadback();
     return;
   }
+
+  if (isVoiceShoppingRemoval(clean)) {
+    const removalIds = parseVoiceShoppingRemovals(clean, shoppingList);
+    if (removalIds.length) {
+      const removed = new Set(removalIds);
+      shoppingList = shoppingList.filter((item) => !removed.has(item.id));
+      chrome.storage.local.set({ shoppingList });
+      renderList();
+    } else if (isGenericListRemoval(clean)) {
+      const offers = pendingVoiceOffers.length
+        ? pendingVoiceOffers
+        : visibleCatalogueOffers;
+      removeCatalogueOfferFromList(preferredOfferForTranscript(clean, offers));
+    }
+    return;
+  }
+
   if (pendingVoiceOffers.length && !localActions.addItems.length) {
     const choice = resolveVoiceCatalogueConfirmation(clean, pendingVoiceOffers);
     if (choice.kind === "accepted") {
-      addManualItem(choice.offer.title, {
-        store: choice.offer.store,
-        price: choice.offer.price,
-      });
+      addCatalogueOfferToList(choice.offer);
       pendingVoiceOffers = [];
       return;
     }
     if (choice.kind === "declined") {
       pendingVoiceOffers = [];
-      actionNote.textContent =
-        "Jev did not add a catalogue match to your list.";
       return;
     }
     if (choice.kind === "ambiguous") {
-      actionNote.textContent =
-        "Choose one exact catalogue result by name or number, or say no.";
-      queueVoiceResponse(
-        createVoiceClarificationEvent(
-          "ask which catalogue result they mean by name, retailer, or number.",
-        ),
-        voiceTurnId,
-      );
-      return;
+      if (bareReply === "affirmative") return;
+      const offer = preferredOfferForTranscript(clean, pendingVoiceOffers);
+      if (offer) {
+        addCatalogueOfferToList(offer);
+        pendingVoiceOffers = [];
+        return;
+      }
     }
     if (genericListReference) {
-      queueVoiceResponse(
-        createVoiceClarificationEvent(
-          "ask which catalogue result they mean by name, retailer, or number.",
-        ),
-        voiceTurnId,
+      addCatalogueOfferToList(
+        preferredOfferForTranscript(clean, pendingVoiceOffers),
       );
       return;
     }
     // A new request or unrelated reply clears the old choice before processing it.
     pendingVoiceOffers = [];
   }
-  const bareReply = classifyBareVoiceReply(clean);
   if (wasAwaitingSearchTerms && bareReply === "affirmative") {
-    queueVoiceResponse(
-      createVoiceClarificationEvent(
-        "ask what product name they want Jev to search for.",
-      ),
-      voiceTurnId,
-    );
+    actionNote.textContent =
+      "No close catalogue match. Say another product name to Jev.";
     return;
   }
   if (wasAwaitingSearchTerms && bareReply === "negative") {
@@ -475,6 +531,29 @@ async function applyVoiceTranscript(text, itemId) {
     awaitingSearchStores = [];
   }
   if (bareReply) return;
+  if (!localActions.addItems.length && visibleCatalogueOffers.length) {
+    const selection = resolveVoiceCatalogueConfirmation(
+      clean,
+      visibleCatalogueOffers,
+    );
+    if (selection.kind === "accepted" || selection.kind === "ambiguous") {
+      setStatus(searchStatus, "Jev is matching your choice to the visible offers…");
+      const result = await chrome.runtime
+        .sendMessage({
+          type: "CATALOGUE_RESOLVE_VISIBLE",
+          query: clean,
+          offers: visibleCatalogueOffers,
+        })
+        .catch(() => ({ matches: [], error: "Jev could not reach the matcher." }));
+      const jevBest = bestJevOffer(result?.matches, visibleCatalogueOffers);
+      const selectedOffer =
+        jevBest ||
+        (selection.kind === "accepted" ? selection.offer : null) ||
+        preferredOfferForTranscript(clean, visibleCatalogueOffers);
+      addCatalogueOfferToList(selectedOffer);
+      return;
+    }
+  }
   if (localActions.addItems.length) {
     let visibleChoice = { kind: "none" };
     if (visibleCatalogueOffers.length) {
@@ -501,6 +580,9 @@ async function applyVoiceTranscript(text, itemId) {
         clean,
         visibleCatalogueOffers,
       );
+      const jevBest = bestJevOffer(result?.matches, visibleCatalogueOffers);
+      if (visibleChoice.kind !== "accepted" && jevBest)
+        visibleChoice = { kind: "accepted", offer: jevBest };
       if (result?.error) {
         setStatus(
           searchStatus,
@@ -513,7 +595,7 @@ async function applyVoiceTranscript(text, itemId) {
       } else if (visibleChoice.kind === "accepted") {
         setStatus(searchStatus, "Using the matching visible catalogue offer.");
       } else if (visibleChoice.kind === "ambiguous") {
-        setStatus(searchStatus, "Jev found multiple matching offers.");
+        setStatus(searchStatus, "Using Jev’s top matching offer.");
       } else {
         setStatus(
           searchStatus,
@@ -522,18 +604,12 @@ async function applyVoiceTranscript(text, itemId) {
       }
     }
     if (visibleChoice.kind === "accepted") {
-      addManualItem(visibleChoice.offer.title, {
-        store: visibleChoice.offer.store,
-        price: visibleChoice.offer.price,
-      });
+      addCatalogueOfferToList(visibleChoice.offer);
       return;
     }
     if (visibleChoice.kind === "ambiguous") {
-      queueVoiceResponse(
-        createVoiceClarificationEvent(
-          "ask which visible catalogue match they mean by number or pack detail.",
-        ),
-        voiceTurnId,
+      addCatalogueOfferToList(
+        preferredOfferForTranscript(clean, visibleCatalogueOffers),
       );
       return;
     }
@@ -558,26 +634,14 @@ async function applyVoiceTranscript(text, itemId) {
         visibleCatalogueOffers,
       );
       if (choice.kind === "accepted") {
-        addManualItem(choice.offer.title, {
-          store: choice.offer.store,
-          price: choice.offer.price,
-        });
+        addCatalogueOfferToList(choice.offer);
         return;
       }
-      queueVoiceResponse(
-        createVoiceClarificationEvent(
-          "ask which visible catalogue match they mean by number or product name.",
-        ),
-        voiceTurnId,
+      addCatalogueOfferToList(
+        preferredOfferForTranscript(clean, visibleCatalogueOffers),
       );
       return;
     }
-    queueVoiceResponse(
-      createVoiceClarificationEvent(
-        "ask what product name they want to add to the list.",
-      ),
-      voiceTurnId,
-    );
     return;
   }
   const catalogueQuery = catalogueQueryForVoiceTurn({
@@ -593,7 +657,6 @@ async function applyVoiceTranscript(text, itemId) {
         ? followupStores
         : retailersFromRequest(clean);
     await searchCatalogues(clean, retailQuery, null, requestedStores, {
-      announceToVoice: true,
       voiceTurnId,
     });
   }
@@ -680,9 +743,8 @@ function closeVoice(message = "Microphone is off.") {
   voiceAttempt += 1;
   sessionReady = false;
   startingVoice = false;
-  introPending = false;
-  voiceResponseInProgress = false;
-  queuedVoiceResponse = null;
+  activeVoiceResponse = null;
+  pendingListReadback = false;
   pendingVoiceOffers = [];
   awaitingSearchTerms = false;
   awaitingSearchStores = [];
@@ -825,7 +887,7 @@ async function startVoice() {
             if (attempt !== voiceAttempt || voiceSocket !== socket) return;
             startingVoice = false;
             sessionReady = true;
-            introPending = true;
+            activeVoiceResponse = "intro";
             voiceLabel.textContent = "Stop voice";
             voiceButton.setAttribute("aria-pressed", "true");
             setVoiceConnection("connected", "Connected");
@@ -843,20 +905,18 @@ async function startVoice() {
         }
         return;
       }
-      if (data.type === "response.created") {
-        voiceResponseInProgress = true;
-        return;
-      }
       if (data.type === "response.done") {
-        voiceResponseInProgress = false;
-        if (introPending) {
-          introPending = false;
+        const completedResponse = activeVoiceResponse;
+        activeVoiceResponse = null;
+        if (completedResponse === "intro") {
           setStatus(
             voiceStatus,
-            "Connected and listening. Ask Jev to search, name an item to add, or ask Voice to read your list.",
+            "Connected and listening. Jev results and your shopping list appear in this panel.",
           );
         }
-        flushQueuedVoiceResponse();
+        if (completedResponse === "list-check")
+          actionNote.textContent = "Your shopping list is shown below.";
+        sendPendingListReadback();
         return;
       }
       if (
@@ -866,12 +926,13 @@ async function startVoice() {
         return;
       }
       if (data.type === "response.output_audio.delta") {
-        playPcm(data.delta);
+        if (activeVoiceResponse) playPcm(data.delta);
         return;
       }
       if (
         data.type === "response.output_audio_transcript.done" &&
-        data.transcript
+        data.transcript &&
+        activeVoiceResponse
       ) {
         addTranscript("Voice", data.transcript);
         return;
@@ -946,7 +1007,6 @@ retailerAccessButton.addEventListener("click", () => {
           Promise.resolve(true),
           pending.stores,
           {
-            announceToVoice: pending.announceToVoice,
             voiceTurnId: pending.voiceTurnId,
           },
         );

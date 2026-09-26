@@ -93,7 +93,7 @@ test("catalogue search language does not create a direct list addition", () => {
   assert.deepEqual(actions.completedItems, []);
 });
 
-test("Voice checks the list only when the shopper explicitly asks", () => {
+test("a spoken list check is recognized for the visible list", () => {
   assert.equal(
     isExplicitListCheck("Can you do a confirmation check on my list?"),
     true,

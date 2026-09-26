@@ -1,6 +1,7 @@
 const LIST_CHECK =
   /\b(?:check|confirm|read|review|show|summari[sz]e|recap|tell me|what(?:'s| is)|what do i have|what have i got)\b.{0,48}\b(?:my|our|the)?\s*(?:shopping\s+)?list\b/i;
 const SEARCH_REQUEST = /\b(?:find|search|look for|compare|check for)\b/i;
+const REMOVE_REQUEST = /\b(?:remove|delete|drop|discard)\b|\btake\b.{0,18}\boff\b/i;
 const PRICE_PATTERN =
   /\$\s?\d{1,4}(?:[.,]\d{1,2})?|\b\d{1,4}(?:[.,]\d{1,2})?\s*(?:dollars?|bucks)\b|\b\d{1,4}\s+dollars?\s+and\s+\d{1,2}\s+cents?\b/i;
 
@@ -25,7 +26,21 @@ export function isGenericListReference(transcript) {
   const text = String(transcript || "");
   return (
     /\b(?:add|put|include|get|grab|pick up|want|choose|take)\b/i.test(text) &&
-    /\b(?:it|this(?:\s+(?:one|item|product))?|that(?:\s+(?:one|item|product))?|the\s+(?:first|second|third)\s+one|one of those)\b/i.test(
+    /\b(?:it|this(?:\s+(?:one|item|product))?|that(?:\s+(?:one|item|product))?|the\s+(?:first|second|third)\s+one|one of those|(?:(?:the|that|this|those)\s+)?(?:coles|woolworths|woolies)\s+ones?)\b/i.test(
+      text,
+    )
+  );
+}
+
+export function isVoiceShoppingRemoval(transcript) {
+  return REMOVE_REQUEST.test(String(transcript || ""));
+}
+
+export function isGenericListRemoval(transcript) {
+  const text = String(transcript || "");
+  return (
+    isVoiceShoppingRemoval(text) &&
+    /\b(?:it|this(?:\s+(?:one|item|product))?|that(?:\s+(?:one|item|product))?|the\s+(?:first|second|third)\s+one|one of those|(?:(?:the|that|this|those)\s+)?(?:coles|woolworths|woolies)\s+ones?)\b/i.test(
       text,
     )
   );
@@ -64,6 +79,46 @@ function matchesListedItem(text, items) {
     const name = normalize(item?.name);
     return name && normalizedText.includes(` ${name} `);
   });
+}
+
+export function parseVoiceShoppingRemovals(transcript, items = []) {
+  const text = String(transcript || "").trim();
+  if (!isVoiceShoppingRemoval(text)) return [];
+
+  const store = storeFromText(text);
+  const available = (Array.isArray(items) ? items : []).filter(
+    (item) => !store || !item?.store || item.store === store,
+  );
+  let matches = matchesListedItem(text, available);
+  if (!matches.length) {
+    const requestedName = normalize(text)
+      .replace(
+        /\b(?:remove|delete|drop|discard|take|off|from|to|my|our|the|shopping|list|woolworths|woolies|coles)\b/g,
+        " ",
+      )
+      .replace(/\s+/g, " ")
+      .trim();
+    if (requestedName)
+      matches = available.filter((item) =>
+        normalize(item?.name).includes(requestedName),
+      );
+  }
+  const mostSpecific = matches.filter((item) => {
+    const name = normalize(item?.name);
+    return !matches.some((other) => {
+      const otherName = normalize(other?.name);
+      return name !== otherName && otherName.includes(name);
+    });
+  });
+  const seenNames = new Set();
+  return mostSpecific
+    .filter((item) => {
+      const name = normalize(item?.name);
+      if (!name || seenNames.has(name)) return false;
+      seenNames.add(name);
+      return true;
+    })
+    .map((item) => item.id);
 }
 
 function hasStoreAcquisitionIntent(text) {
