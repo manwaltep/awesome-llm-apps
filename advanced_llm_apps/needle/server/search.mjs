@@ -141,7 +141,7 @@ export async function search(body, { fetchImpl = fetch, key = getKey() } = {}) {
   }
   if (!response.ok) {
     const messages = {
-      401: "The server’s AI Gateway key was rejected.",
+      401: "The server’s AI Gateway key was rejected. Use an AI Gateway API key from Vercel (commonly vck_…), not an OpenAI key or another Vercel token.",
       402: "AI Gateway credits or account verification are required.",
       403: "This AI Gateway account cannot access Jev.",
       429: "Too many searches. Give it a moment and try again.",

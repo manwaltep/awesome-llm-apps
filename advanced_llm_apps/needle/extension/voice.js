@@ -12,6 +12,10 @@ export function createVoiceIntroductionEvent() {
   };
 }
 
+export function needsMicrophonePermissionTab(permissionState) {
+  return permissionState !== "granted";
+}
+
 export function microphonePermissionMessage(error) {
   const name = String(error?.name || "");
   const detail = String(error?.message || "")
@@ -21,7 +25,7 @@ export function microphonePermissionMessage(error) {
     name === "NotAllowedError" ||
     /permission (?:dismissed|denied)|notallowed/i.test(detail)
   ) {
-    return "Chrome dismissed microphone access, so Voice did not connect. Choose Allow on the microphone prompt. If it no longer appears, allow the microphone for Needle in chrome://settings/content/microphone, then try again.";
+    return "Chrome did not grant microphone access, so Voice did not connect. In chrome://extensions, open Needle → Details → Site settings and allow its microphone. On macOS, also allow Google Chrome under System Settings → Privacy & Security → Microphone, then try again.";
   }
   if (name === "NotFoundError" || name === "DevicesNotFoundError")
     return "Chrome could not find a microphone. Connect or enable one, then try Voice again.";

@@ -100,6 +100,13 @@ test("missing keys and upstream failures never fabricate matches", async () => {
   await assert.rejects(
     search(
       { query: "fees", blocks },
+      { key: "test", fetchImpl: async () => ({ ok: false, status: 401 }) },
+    ),
+    /AI Gateway API key.*vck_/,
+  );
+  await assert.rejects(
+    search(
+      { query: "fees", blocks },
       {
         key: "test",
         fetchImpl: async () => {

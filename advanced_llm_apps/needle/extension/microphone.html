@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Allow microphone for Needle</title>
+    <link rel="stylesheet" href="microphone.css" />
+  </head>
+  <body>
+    <main class="setup-card">
+      <header>
+        <img src="icons/needle.svg" alt="" width="44" height="44" />
+        <div><strong>needle.</strong><span> groceries</span></div>
+      </header>
+      <p class="eyebrow">ONE-TIME SETUP</p>
+      <h1>Allow Voice to use your microphone</h1>
+      <p>
+        Chrome can dismiss microphone prompts from the side panel. This full tab
+        lets Chrome ask for access. Needle only checks that permission here;
+        this setup page stops the microphone immediately and does not send audio
+        to Voice.
+      </p>
+      <button id="allow-microphone" type="button">Allow microphone</button>
+      <p id="status" role="status" aria-live="polite">
+        Choose Allow if Chrome asks for microphone access.
+      </p>
+      <section id="help" hidden>
+        <h2>If Chrome still blocks it</h2>
+        <ol>
+          <li>Open <code>chrome://extensions</code>.</li>
+          <li>
+            Find Needle, choose <strong>Details</strong>, then
+            <strong>Site settings</strong>.
+          </li>
+          <li>Set Microphone to <strong>Allow</strong>, then return here.</li>
+          <li>
+            On macOS, allow Google Chrome in System Settings → Privacy &amp;
+            Security → Microphone.
+          </li>
+        </ol>
+      </section>
+      <button id="return-to-needle" class="secondary" type="button" hidden>
+        Return to Needle
+      </button>
+    </main>
+    <script type="module" src="microphone.js"></script>
+  </body>
+</html>

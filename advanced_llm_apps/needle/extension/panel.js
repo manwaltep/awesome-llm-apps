@@ -6,6 +6,7 @@ import {
 import {
   createVoiceIntroductionEvent,
   microphonePermissionMessage,
+  needsMicrophonePermissionTab,
 } from "./voice.js";
 
 const $ = (selector) => document.querySelector(selector);
@@ -462,13 +463,55 @@ async function startVoice() {
 
   let microphoneRequest;
   let audioContextRequest;
+  let permissionState = "prompt";
   try {
     if (!navigator.mediaDevices?.getUserMedia)
       throw new Error("Chrome cannot access the microphone in this panel.");
-    // Start both browser media requests inside the toolbar-button click gesture.
+    // Start playback synchronously from the click so Chrome retains its gesture.
     audioContext = new AudioContext({ sampleRate: 24000 });
     audioContextRequest = audioContext.resume();
     audioContextRequest.catch(() => {});
+    try {
+      permissionState = (
+        await navigator.permissions.query({ name: "microphone" })
+      ).state;
+    } catch {
+      // Older Chrome builds may not expose microphone permission state here.
+    }
+  } catch (error) {
+    if (attempt === voiceAttempt)
+      closeVoice(microphonePermissionMessage(error));
+    return;
+  }
+
+  if (attempt !== voiceAttempt) return;
+  if (needsMicrophonePermissionTab(permissionState)) {
+    startingVoice = false;
+    voiceButton.setAttribute("aria-pressed", "false");
+    voiceLabel.textContent = "Start voice";
+    setVoiceConnection("off", "Off");
+    setStatus(
+      voiceStatus,
+      "Chrome needs a one-time microphone check in a full Needle tab. Allow the mic there, return here, then click Start voice again.",
+    );
+    stopPlayback();
+    audioContext?.close().catch(() => {});
+    audioContext = null;
+    chrome.tabs
+      .create({ url: chrome.runtime.getURL("microphone.html"), active: true })
+      .catch(() => {
+        setVoiceConnection("error", "Not connected");
+        setStatus(
+          voiceStatus,
+          "Could not open Needle’s microphone setup tab. Open the extension’s details and allow its microphone, then try again.",
+          true,
+        );
+      });
+    return;
+  }
+
+  let acquiredStream;
+  try {
     microphoneRequest = navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -476,14 +519,6 @@ async function startVoice() {
         autoGainControl: true,
       },
     });
-  } catch (error) {
-    if (attempt === voiceAttempt)
-      closeVoice(microphonePermissionMessage(error));
-    return;
-  }
-
-  let acquiredStream;
-  try {
     acquiredStream = await microphoneRequest;
   } catch (error) {
     if (attempt === voiceAttempt)
@@ -694,6 +729,22 @@ $("#page-search").addEventListener("click", async (event) => {
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "CATALOGUE_PROGRESS")
     setStatus(searchStatus, message.text);
+  if (message.type === "NEEDLE_MIC_PERMISSION_RESULT") {
+    if (message.granted) {
+      setVoiceConnection("off", "Off");
+      setStatus(
+        voiceStatus,
+        "Microphone enabled for Needle. Return here and click Start voice to connect.",
+      );
+    } else {
+      setVoiceConnection("error", "Not connected");
+      setStatus(
+        voiceStatus,
+        message.message || microphonePermissionMessage(message.error),
+        true,
+      );
+    }
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {

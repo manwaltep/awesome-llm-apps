@@ -4,6 +4,7 @@ import { realtimeSessionUpdate } from "../server/realtime.mjs";
 import {
   createVoiceIntroductionEvent,
   microphonePermissionMessage,
+  needsMicrophonePermissionTab,
 } from "../extension/voice.js";
 
 test("voice is speech-to-speech and exposes a separate visible transcript", () => {
@@ -29,11 +30,18 @@ test("Voice starts with an audio introduction that explains Jev and list actions
   assert.match(event.response.instructions, /shared list/i);
 });
 
-test("dismissed microphone access explains how to allow it and confirms no connection", () => {
+test("ungranted microphone access must be requested from a full extension tab", () => {
+  assert.equal(needsMicrophonePermissionTab("granted"), false);
+  assert.equal(needsMicrophonePermissionTab("prompt"), true);
+  assert.equal(needsMicrophonePermissionTab("denied"), true);
+});
+
+test("dismissed microphone access points to extension site settings", () => {
   const message = microphonePermissionMessage({
     name: "NotAllowedError",
     message: "Permission dismissed",
   });
   assert.match(message, /did not connect/i);
-  assert.match(message, /chrome:\/\/settings\/content\/microphone/);
+  assert.match(message, /chrome:\/\/extensions/);
+  assert.match(message, /Site settings/i);
 });
