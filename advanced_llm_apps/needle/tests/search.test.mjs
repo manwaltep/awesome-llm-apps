@@ -6,6 +6,8 @@ import {
   parseAnswers,
   search,
   MODEL,
+  TYPESAFE_MODEL,
+  getProvider,
 } from "../server/search.mjs";
 import { splitDocument } from "../src/search.js";
 const blocks = [
@@ -32,6 +34,39 @@ test("binds each relevance question to a specific passage", () => {
   assert.equal(p.state.passages, blocks);
   assert.match(p.questions.b1.instructions, /ONLY passage b1/);
   assert.equal(p.questions.b0.type, "boolean");
+});
+test("routes Jev API keys to TypeSafe System One with its native Noul shape", async () => {
+  assert.equal(getProvider("apikey_test"), "typesafe");
+  assert.equal(getProvider("gateway-test"), "gateway");
+  const result = await search(
+    { query: "fees", blocks },
+    {
+      key: "apikey_test",
+      fetchImpl: async (url, options) => {
+        assert.equal(url, "https://api.typesafe.ai/v1/systemone");
+        assert.equal(options.headers.Authorization, "Bearer apikey_test");
+        const payload = JSON.parse(options.body);
+        assert.equal(payload.model, TYPESAFE_MODEL);
+        assert.equal(payload.questions.b0.type, "noul");
+        assert.equal(payload.questions.b1.type, "noul");
+        return {
+          ok: true,
+          json: async () => ({
+            model: TYPESAFE_MODEL,
+            answers: {
+              b0: { type: "noul", noul: 0.95 },
+              b1: { type: "noul", noul: 0.05 },
+            },
+          }),
+        };
+      },
+    },
+  );
+  assert.equal(result.model, TYPESAFE_MODEL);
+  assert.deepEqual(
+    result.matches.map((match) => match.id),
+    ["b0"],
+  );
 });
 test("rejects incomplete, out-of-range and nonnumeric scores", () => {
   for (const p of [undefined, -1, 1.1, NaN, "0.9"])
@@ -88,7 +123,7 @@ test("uses evaluation endpoint, keeps key server-side, returns ranked matching s
 test("missing keys and upstream failures never fabricate matches", async () => {
   await assert.rejects(
     search({ query: "fees", blocks }, { key: "" }),
-    /needs an AI Gateway key/,
+    /needs a Jev API key/,
   );
   await assert.rejects(
     search(
@@ -102,7 +137,17 @@ test("missing keys and upstream failures never fabricate matches", async () => {
       { query: "fees", blocks },
       { key: "test", fetchImpl: async () => ({ ok: false, status: 401 }) },
     ),
-    /AI Gateway API key.*vck_/,
+    /AI Gateway rejected the configured key/,
+  );
+  await assert.rejects(
+    search(
+      { query: "fees", blocks },
+      {
+        key: "apikey_test",
+        fetchImpl: async () => ({ ok: false, status: 401 }),
+      },
+    ),
+    /TypeSafe rejected the Jev API key/,
   );
   await assert.rejects(
     search(

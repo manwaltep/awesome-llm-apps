@@ -20,11 +20,11 @@ Needle is a Chrome side-panel shopping companion built on the open-source Jev se
 3. Voice uses `gpt-realtime-2.1` for direct speech-to-speech. `gpt-4o-mini-transcribe` supplies the transcript shown in the app; Jev receives the text only.
 4. `gpt-5.4-mini` interprets explicit list requests from the transcript. A deterministic guard prevents catalogue results or suggestions from checking off an item; the shopper must explicitly confirm finding it in store, picking it up at the store, buying it, or putting that listed item in a trolley/cart/basket.
 
-The backend accesses `typesafe-ai/jev` through [Vercel AI Gateway's evaluation API](https://vercel.com/docs/ai-gateway/modalities/evaluation). Jev selects source sentences rather than generating an answer. Results with relevance scores of at least `0.58` are included; this is a ranking threshold, not a guarantee that every relevant passage was found.
+The backend sends Jev evaluations to TypeSafe's [System One API](https://docs.typesafe.ai/api). If you use a Vercel AI Gateway key instead, it routes through [Vercel AI Gateway's evaluation API](https://vercel.com/docs/ai-gateway/modalities/evaluation). Jev selects source sentences rather than generating an answer. Results with relevance scores of at least `0.58` are included; this is a ranking threshold, not a guarantee that every relevant passage was found.
 
 ## How to Get Started
 
-Requires **Node.js 22.12+**, npm, and a Vercel AI Gateway account with access to `typesafe-ai/jev`. Jev requires an **AI Gateway API key**. Voice and transcript-based list updates require an **OpenAI API key**.
+Requires **Node.js 22.12+**, npm, and a TypeSafe API key for direct Jev access, or a Vercel AI Gateway key with access to Jev. Voice and transcript-based list updates require an **OpenAI API key**.
 
 ```sh
 git clone https://github.com/manwaltep/awesome-llm-apps.git
@@ -38,11 +38,11 @@ On Windows PowerShell, use `Copy-Item .env.example .env` instead of `cp`.
 Open `.env` in your editor and fill in both provider keys:
 
 ```dotenv
-AI_GATEWAY_API_KEY=your_vercel_ai_gateway_key
+TYPESAFE_API_KEY=your_typesafe_jev_key
 OPENAI_API_KEY=your_openai_api_key
 ```
 
-The Gateway key powers Jev. The OpenAI key powers Voice and text-only list updates. Keep both keys on the server; never put them in the extension or a `VITE_` variable.
+The TypeSafe key powers Jev directly. The backend also recognizes a TypeSafe `apikey_` key saved under the older `AI_GATEWAY_API_KEY` name, or a Vercel AI Gateway key in that variable. The OpenAI key powers Voice and text-only list updates. Keep provider keys on the server; never put them in the extension or a `VITE_` variable.
 
 ## Run the App
 
@@ -54,7 +54,7 @@ npm run dev
 
 Open **http://127.0.0.1:4199** in your browser. This starts the UI and backend together and creates a downloadable extension ZIP. Keep the terminal running while using the extension. `.env` is loaded at server startup; restart after changing it. The local server binds only to your computer’s loopback interface.
 
-Never put the Gateway key in the extension, a `VITE_` environment variable, a screenshot, or a committed file. `.env` is ignored by Git. The optional `AI_GATEWAY_KEY_FILE` setting can read an existing local key file instead; ordinary users only need `.env`.
+Never put provider keys in the extension, a `VITE_` environment variable, a screenshot, or a committed file. `.env` is ignored by Git. The optional `AI_GATEWAY_KEY_FILE` setting can read an existing local key file instead; ordinary users only need `.env`.
 
 ## Install the Chrome Extension
 
@@ -109,7 +109,7 @@ For a PDF with selectable text, copy the relevant text and use **Bring your own 
 | What you see                                 | What to do                                                                                                                                                                                                                          |
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Cannot reach Needle                          | Start `npm run dev` and use `http://127.0.0.1:4199` as the extension's server URL. Keep that terminal running.                                                                                                                      |
-| Jev key or credits error                     | Use a Vercel AI Gateway API key in `AI_GATEWAY_API_KEY` (commonly starts `vck_`), check model access and credits, then restart the server.                                                                                          |
+| Jev key or credits error                     | Check that `TYPESAFE_API_KEY` contains a TypeSafe Jev API key, or that `AI_GATEWAY_API_KEY` contains a Vercel AI Gateway key. Check account access and credits, then restart the server.                                            |
 | Voice or transcript list updates unavailable | Check `OPENAI_API_KEY` in `.env`, then restart the local server.                                                                                                                                                                    |
 | Microphone permission dismissed              | Open `chrome://extensions` → Needle → **Details** → **Site settings** and allow the microphone. On macOS, also allow Chrome in System Settings → Privacy & Security → Microphone. Return to Needle and click **Start voice** again. |
 | Chrome shows a retailer reload banner        | Reload the Woolworths or Coles page once so Chrome applies the catalogue access you just granted.                                                                                                                                   |
@@ -119,19 +119,20 @@ For a PDF with selectable text, copy the relevant text and use **Bring your own 
 
 ## API Key and Connection Settings
 
-| Setting               | Where to put it                                                | Purpose                                                                    |
-| --------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `AI_GATEWAY_API_KEY`  | Backend `.env`, or Vercel project environment variables        | Pays for and authenticates Jev inference; never goes into the extension    |
-| `OPENAI_API_KEY`      | Backend `.env`, or Vercel project environment variables        | Realtime Voice and GPT-5.4-mini list intent; never goes into the extension |
-| `NEEDLE_ACCESS_TOKEN` | Backend environment, then the same value in extension settings | Protects access to your backend; required on Vercel, optional locally      |
-| Needle server URL     | Extension settings                                             | Your local backend or your own HTTPS deployment                            |
+| Setting               | Where to put it                                                | Purpose                                                                      |
+| --------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `TYPESAFE_API_KEY`    | Backend `.env`, or Vercel project environment variables        | Authenticates direct TypeSafe Jev API calls; never goes into the extension   |
+| `AI_GATEWAY_API_KEY`  | Backend `.env`, or Vercel project environment variables        | Optional Vercel AI Gateway credential for Jev; never goes into the extension |
+| `OPENAI_API_KEY`      | Backend `.env`, or Vercel project environment variables        | Realtime Voice and GPT-5.4-mini list intent; never goes into the extension   |
+| `NEEDLE_ACCESS_TOKEN` | Backend environment, then the same value in extension settings | Protects access to your backend; required on Vercel, optional locally        |
+| Needle server URL     | Extension settings                                             | Your local backend or your own HTTPS deployment                              |
 
-For the web playground on a protected backend, enter the access token in **How it works → Server access token**. This is a separate app-specific token, not the Gateway key. Whoever owns the backend’s Gateway key pays for its searches.
+For the web playground on a protected backend, enter the access token in **How it works → Server access token**. This is a separate app-specific token, not the Jev provider key. Searches use the TypeSafe or Vercel account configured on the backend.
 
 ## Optional: Deploy to Vercel
 
 1. Import your fork into Vercel. Set **Root Directory** to `advanced_llm_apps/needle` and Framework Preset to **Vite**. The included `vercel.json` specifies the build output and API function duration.
-2. Add `AI_GATEWAY_API_KEY`, `OPENAI_API_KEY`, and a randomly generated `NEEDLE_ACCESS_TOKEN` to the project’s environment variables. For example, generate the access token with:
+2. Add `TYPESAFE_API_KEY` (or `AI_GATEWAY_API_KEY` if using Vercel AI Gateway), `OPENAI_API_KEY`, and a randomly generated `NEEDLE_ACCESS_TOKEN` to the project’s environment variables. For example, generate the access token with:
 
    ```sh
    node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
