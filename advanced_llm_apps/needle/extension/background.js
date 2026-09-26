@@ -228,6 +228,54 @@ async function searchCatalogues(query, retailerQuery = query, requestedStores) {
   }
 }
 
+async function resolveVisibleCatalogueOffers(query, offers) {
+  const cleanQuery = String(query || "").trim();
+  const candidates = (Array.isArray(offers) ? offers : [])
+    .filter((offer) => String(offer?.title || "").trim())
+    .slice(0, 160);
+  if (!cleanQuery || !candidates.length)
+    return { matches: [], error: "No visible catalogue offers to match." };
+  const blocks = [];
+  let totalTextLength = 0;
+  for (const offer of candidates) {
+    const text = [
+      offer?.title && `Product: ${String(offer.title).slice(0, 180)}`,
+      offer?.store && `Retailer: ${String(offer.store).slice(0, 24)}`,
+      offer?.price && `Price: ${String(offer.price).slice(0, 32)}`,
+      offer?.detail && `Details: ${String(offer.detail).slice(0, 600)}`,
+      offer?.focus &&
+        `Jev's visible match detail: ${String(offer.focus).slice(0, 600)}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    if (blocks.length && totalTextLength + text.length > 60000) break;
+    blocks.push({ id: `b${blocks.length}`, text });
+    totalTextLength += text.length;
+  }
+  const { server = "http://127.0.0.1:4199", token = "" } =
+    await chrome.storage.local.get(["server", "token"]);
+  try {
+    const response = await fetch(`${server}/api/search`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { "x-needle-token": token } : {}),
+      },
+      body: JSON.stringify({ query: cleanQuery.slice(0, 400), blocks }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const result = await response.json();
+    if (!response.ok)
+      return {
+        matches: [],
+        error: result.error || "Jev could not match the offers.",
+      };
+    return { matches: result.matches || [] };
+  } catch {
+    return { matches: [], error: "Jev could not reach the catalogue matcher." };
+  }
+}
+
 async function interpretShoppingIntent(payload) {
   const { server = "http://127.0.0.1:4199", token = "" } =
     await chrome.storage.local.get(["server", "token"]);
@@ -261,6 +309,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       () =>
         sendResponse({
           error: "Jev could not complete this catalogue search.",
+        }),
+    );
+    return true;
+  }
+  if (message.type === "CATALOGUE_RESOLVE_VISIBLE") {
+    resolveVisibleCatalogueOffers(message.query, message.offers).then(
+      sendResponse,
+      () =>
+        sendResponse({
+          matches: [],
+          error: "Jev could not match the visible offers.",
         }),
     );
     return true;

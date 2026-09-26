@@ -11,6 +11,8 @@ import {
   microphonePermissionMessage,
   needsMicrophonePermissionTab,
   prepareVoiceCatalogueOffers,
+  prepareVisibleCatalogueOffers,
+  resolveJevVisibleCatalogueMatch,
   resolveVoiceCatalogueConfirmation,
 } from "../extension/voice.js";
 
@@ -139,6 +141,97 @@ test("a retailer-specific spoken choice resolves to its stored catalogue match",
     [offer],
   );
   assert.deepEqual(result, { kind: "accepted", offer });
+});
+
+test("a spoken add request resolves to the visible Jev result and its metadata", () => {
+  const offer = {
+    choice: "1",
+    title: "Allen's Peaches and Cream Peach Lollies 150g",
+    store: "Woolworths",
+    price: "$2.50",
+  };
+  assert.deepEqual(
+    resolveVoiceCatalogueConfirmation(
+      "Add Alan's Peaches and Cream to the list.",
+      [offer],
+    ),
+    { kind: "accepted", offer },
+  );
+  assert.deepEqual(
+    resolveVoiceCatalogueConfirmation("Add this one to the list", [offer]),
+    { kind: "accepted", offer },
+  );
+  assert.deepEqual(
+    resolveVoiceCatalogueConfirmation("Add this one to the list", [
+      offer,
+      { ...offer, choice: "2", store: "Coles" },
+    ]),
+    { kind: "ambiguous" },
+  );
+});
+
+test("Jev resolves a named add against visible offers and preserves the exact source", () => {
+  const woolworths = {
+    choice: "1",
+    title: "Allen's Peaches and Cream Peach Lollies 150g",
+    store: "Woolworths",
+    price: "$2.50",
+  };
+  const coles = {
+    choice: "2",
+    title: "Allen's Peaches and Cream 180g",
+    store: "Coles",
+    price: "$3.00",
+  };
+  assert.deepEqual(
+    resolveJevVisibleCatalogueMatch(
+      [{ id: "b1", probability: 0.91 }],
+      "Add Allen's Peaches and Cream from Coles to the list",
+      [woolworths, coles],
+    ),
+    { kind: "accepted", offer: coles },
+  );
+  assert.deepEqual(
+    resolveJevVisibleCatalogueMatch(
+      [
+        { id: "b0", probability: 0.9 },
+        { id: "b1", probability: 0.89 },
+      ],
+      "Add Allen's Peaches and Cream to the list",
+      [woolworths, coles],
+    ),
+    { kind: "ambiguous" },
+  );
+  assert.deepEqual(
+    resolveJevVisibleCatalogueMatch(
+      [
+        { id: "b0", probability: 0.9 },
+        { id: "b1", probability: 0.89 },
+      ],
+      "Add Allen's Peaches and Cream peach lollies to the list",
+      [woolworths, coles],
+    ),
+    { kind: "accepted", offer: woolworths },
+  );
+});
+
+test("visible Jev offers keep full product details while voice summaries stay short", () => {
+  const detail = "Pack size and offer details. ".repeat(12);
+  const source = [
+    {
+      title: "Allen's Peaches and Cream",
+      store: "woolworths",
+      detail,
+      focus: { text: "Save on the 150 g bag." },
+      price: "$2.50",
+    },
+  ];
+  assert.equal(prepareVoiceCatalogueOffers(source)[0].detail.length, 180);
+  assert.equal(prepareVisibleCatalogueOffers(source)[0].detail.length, 347);
+  assert.equal(
+    prepareVisibleCatalogueOffers(source)[0].focus,
+    "Save on the 150 g bag.",
+  );
 });
 
 test("bare yes/no replies never become catalogue queries", () => {

@@ -13,9 +13,14 @@ import {
   microphonePermissionMessage,
   needsMicrophonePermissionTab,
   prepareVoiceCatalogueOffers,
+  prepareVisibleCatalogueOffers,
+  resolveJevVisibleCatalogueMatch,
   resolveVoiceCatalogueConfirmation,
 } from "./voice.js";
-import { parseVoiceShoppingActions } from "./shopping.js";
+import {
+  isGenericListReference,
+  parseVoiceShoppingActions,
+} from "./shopping.js";
 
 const $ = (selector) => document.querySelector(selector);
 const searchForm = $("#search-form");
@@ -58,6 +63,7 @@ let introPending = false;
 let pendingCatalogueSearch = null;
 let receivedItems = new Set();
 let pendingVoiceOffers = [];
+let visibleCatalogueOffers = [];
 let voiceResponseInProgress = false;
 let queuedVoiceResponse = null;
 let catalogueSearchSequence = 0;
@@ -280,6 +286,7 @@ async function searchCatalogues(
   if (!clean) return;
   const searchId = ++catalogueSearchSequence;
   pendingVoiceOffers = [];
+  visibleCatalogueOffers = [];
   queuedVoiceResponse = null;
   awaitingSearchTerms = false;
   awaitingSearchStores = [];
@@ -338,6 +345,7 @@ async function searchCatalogues(
     if (!result || result.error)
       throw new Error(result?.error || "Jev could not complete this search.");
     if (searchId !== catalogueSearchSequence) return;
+    visibleCatalogueOffers = prepareVisibleCatalogueOffers(result.offers || []);
     renderOffers(result.offers || [], result.productsSeen || 0);
     setStatus(
       searchStatus,
@@ -403,11 +411,12 @@ async function applyVoiceTranscript(text, itemId) {
   const followupStores = [...awaitingSearchStores];
   addTranscript("You", clean);
   const localActions = parseVoiceShoppingActions(clean, shoppingList);
+  const genericListReference = isGenericListReference(clean);
   if (localActions.listCheck) {
     queueVoiceResponse(createVoiceListCheckEvent(shoppingList), voiceTurnId);
     return;
   }
-  if (pendingVoiceOffers.length) {
+  if (pendingVoiceOffers.length && !localActions.addItems.length) {
     const choice = resolveVoiceCatalogueConfirmation(clean, pendingVoiceOffers);
     if (choice.kind === "accepted") {
       addManualItem(choice.offer.title, {
@@ -426,6 +435,15 @@ async function applyVoiceTranscript(text, itemId) {
     if (choice.kind === "ambiguous") {
       actionNote.textContent =
         "Choose one exact catalogue result by name or number, or say no.";
+      queueVoiceResponse(
+        createVoiceClarificationEvent(
+          "ask which catalogue result they mean by name, retailer, or number.",
+        ),
+        voiceTurnId,
+      );
+      return;
+    }
+    if (genericListReference) {
       queueVoiceResponse(
         createVoiceClarificationEvent(
           "ask which catalogue result they mean by name, retailer, or number.",
@@ -457,14 +475,109 @@ async function applyVoiceTranscript(text, itemId) {
     awaitingSearchStores = [];
   }
   if (bareReply) return;
-  if (localActions.addItems.length || localActions.completedItems.length) {
+  if (localActions.addItems.length) {
+    let visibleChoice = { kind: "none" };
+    if (visibleCatalogueOffers.length) {
+      const item = localActions.addItems[0];
+      const query = [item.name, item.store, item.price]
+        .filter(Boolean)
+        .join(" ");
+      setStatus(
+        searchStatus,
+        "Jev is matching your item to the visible offers…",
+      );
+      const result = await chrome.runtime
+        .sendMessage({
+          type: "CATALOGUE_RESOLVE_VISIBLE",
+          query,
+          offers: visibleCatalogueOffers,
+        })
+        .catch(() => ({
+          matches: [],
+          error: "Jev could not reach the matcher.",
+        }));
+      visibleChoice = resolveJevVisibleCatalogueMatch(
+        result?.matches,
+        clean,
+        visibleCatalogueOffers,
+      );
+      if (result?.error) {
+        setStatus(
+          searchStatus,
+          visibleChoice.kind === "accepted"
+            ? "Jev follow-up was unavailable; using the matching visible offer."
+            : "Jev matching is unavailable; using the spoken item details.",
+        );
+      } else if (visibleChoice.kind === "accepted" && result?.matches?.length) {
+        setStatus(searchStatus, "Jev matched the item to a visible offer.");
+      } else if (visibleChoice.kind === "accepted") {
+        setStatus(searchStatus, "Using the matching visible catalogue offer.");
+      } else if (visibleChoice.kind === "ambiguous") {
+        setStatus(searchStatus, "Jev found multiple matching offers.");
+      } else {
+        setStatus(
+          searchStatus,
+          "No visible offer matched; using the spoken item details.",
+        );
+      }
+    }
+    if (visibleChoice.kind === "accepted") {
+      addManualItem(visibleChoice.offer.title, {
+        store: visibleChoice.offer.store,
+        price: visibleChoice.offer.price,
+      });
+      return;
+    }
+    if (visibleChoice.kind === "ambiguous") {
+      queueVoiceResponse(
+        createVoiceClarificationEvent(
+          "ask which visible catalogue match they mean by number or pack detail.",
+        ),
+        voiceTurnId,
+      );
+      return;
+    }
     for (const item of localActions.addItems) addManualItem(item.name, item);
+    await chrome.storage.local.set({ shoppingList });
+    renderList();
+    return;
+  }
+  if (localActions.completedItems.length) {
     const completed = new Set(localActions.completedItems);
     shoppingList = shoppingList.map((item) =>
       completed.has(item.id) ? { ...item, checked: true } : item,
     );
     await chrome.storage.local.set({ shoppingList });
     renderList();
+    return;
+  }
+  if (genericListReference) {
+    if (visibleCatalogueOffers.length) {
+      const choice = resolveVoiceCatalogueConfirmation(
+        clean,
+        visibleCatalogueOffers,
+      );
+      if (choice.kind === "accepted") {
+        addManualItem(choice.offer.title, {
+          store: choice.offer.store,
+          price: choice.offer.price,
+        });
+        return;
+      }
+      queueVoiceResponse(
+        createVoiceClarificationEvent(
+          "ask which visible catalogue match they mean by number or product name.",
+        ),
+        voiceTurnId,
+      );
+      return;
+    }
+    queueVoiceResponse(
+      createVoiceClarificationEvent(
+        "ask what product name they want to add to the list.",
+      ),
+      voiceTurnId,
+    );
     return;
   }
   const catalogueQuery = catalogueQueryForVoiceTurn({

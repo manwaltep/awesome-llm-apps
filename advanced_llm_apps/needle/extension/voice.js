@@ -43,6 +43,31 @@ export function prepareVoiceCatalogueOffers(offers) {
     .filter((offer) => offer.title && offer.store);
 }
 
+export function prepareVisibleCatalogueOffers(offers) {
+  return (Array.isArray(offers) ? offers : [])
+    .slice(0, 160)
+    .map((offer, index) => {
+      const store =
+        offer?.store === "coles"
+          ? "Coles"
+          : offer?.store === "woolworths"
+            ? "Woolworths"
+            : "";
+      return {
+        choice: String(index + 1),
+        title: cleanVoiceText(offer?.title, 180),
+        store,
+        detail: cleanVoiceText(offer?.detail, 600),
+        focus: cleanVoiceText(offer?.focus?.text, 600),
+        price: cleanVoiceText(
+          offer?.price || offer?.detail?.match(/\$\s?\d+(?:[.,]\d{1,2})?/)?.[0],
+          32,
+        ),
+      };
+    })
+    .filter((offer) => offer.title && offer.store);
+}
+
 export function createVoiceCatalogueResultsEvent({
   query,
   offers = [],
@@ -294,7 +319,7 @@ export function resolveVoiceCatalogueConfirmation(transcript, offers = []) {
   }
 
   const affirmative =
-    /\b(?:yes|yeah|yep|sure|okay|ok|please|go ahead|do it|add it|add that|put it|put that|include it|include that|can you get|could you get|would you get|can you add|could you add|would you add)\b/i.test(
+    /\b(?:yes|yeah|yep|sure|okay|ok|please|go ahead|do it|add it|add this|add that|put it|put this|put that|include it|include this|include that|this one|that one|can you get|could you get|would you get|can you add|could you add|would you add)\b/i.test(
       String(transcript || ""),
     );
   if (selected.length === 1) return { kind: "accepted", offer: selected[0] };
@@ -302,6 +327,46 @@ export function resolveVoiceCatalogueConfirmation(transcript, offers = []) {
   if (!affirmative) return { kind: "none" };
   if (choices.length === 1) return { kind: "accepted", offer: choices[0] };
   return { kind: "ambiguous" };
+}
+
+export function resolveJevVisibleCatalogueMatch(
+  matches,
+  transcript,
+  visibleOffers = [],
+) {
+  const offers = Array.isArray(visibleOffers) ? visibleOffers : [];
+  const jevOffers = (Array.isArray(matches) ? matches : [])
+    .map((match) => {
+      const matchIndex = Number(String(match?.id || "").replace(/^b/, ""));
+      return Number.isInteger(matchIndex) ? offers[matchIndex] : null;
+    })
+    .filter(Boolean);
+
+  if (jevOffers.length === 1) return { kind: "accepted", offer: jevOffers[0] };
+  const candidates = jevOffers.length ? jevOffers : offers;
+  if (!candidates.length) return { kind: "none" };
+  if (candidates.length === 1)
+    return resolveVoiceCatalogueConfirmation(transcript, candidates);
+
+  const explicitStoreOrOrder =
+    /\b(?:coles|woolworths|woolies|first|second|third|number one|number two|number three|option [123])\b/i.test(
+      transcript,
+    );
+  const explicitChoice = resolveVoiceCatalogueConfirmation(
+    transcript,
+    candidates,
+  );
+  if (explicitStoreOrOrder && explicitChoice.kind !== "none")
+    return explicitChoice;
+
+  const ranked = candidates
+    .map((offer) => ({ offer, ...fuzzyOfferMatch(transcript, offer) }))
+    .sort((left, right) => right.matched - left.matched);
+  if (ranked[0].matched >= 2 && ranked[0].matched > ranked[1].matched)
+    return { kind: "accepted", offer: ranked[0].offer };
+  if (ranked[0].matched >= 2 || explicitChoice.kind === "ambiguous")
+    return { kind: "ambiguous" };
+  return { kind: "none" };
 }
 
 export function needsMicrophonePermissionTab(permissionState) {

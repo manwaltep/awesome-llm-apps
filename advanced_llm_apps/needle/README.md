@@ -84,7 +84,7 @@ Product layouts change. If Jev reports no readable product cards, inspect the re
 
 ### Speak with Voice
 
-Choose **Start voice** and allow microphone access. Once the **Connected** badge appears, Voice gives a short introduction and explains how Jev and the shopping list work. Voice replies aloud and its transcript appears in the panel. Jev separately searches the text transcript; it does not receive speech audio. While Jev searches, Voice stays quiet. It reads sourced matches when they arrive. Name the item, retailer, or choice number to add that exact product. A bare “yes” with multiple matches asks one short clarification and is never sent to Jev. To hear a confirmation check of your list, ask Voice to read it back.
+Choose **Start voice** and allow microphone access. Once the **Connected** badge appears, Voice gives a short introduction and explains how Jev and the shopping list work. Voice replies aloud and its transcript appears in the panel. Jev separately searches the text transcript; it does not receive speech audio or view the page. Needle sends Jev the full structured product details it has extracted from the current catalogue offers. When you name an item to add, Jev matches it against those sourced offers and Needle saves the exact title, retailer, and price from that offer. A vague “this one” works when one match is visible; if several could match, say the name or number. A bare “yes” with multiple matches asks one short clarification and is never sent to Jev. To hear a confirmation check of your list, ask Voice to read it back.
 
 ### Shopping list and notes
 
@@ -182,7 +182,7 @@ Stop the dev server before running preview on the same port, or choose another `
 
 `npm run package:extension` produces:
 
-- `artifacts/needle-extension-v1.2.6.zip` for release attachment.
+- `artifacts/needle-extension-v1.2.7.zip` for release attachment.
 - `public/needle-extension.zip` for the app’s download link; production builds copy it to `dist/`.
 
 ZIP packaging uses an explicit file allowlist and does not include the backend, `.env`, dependencies or development output. Build artifacts are not committed.

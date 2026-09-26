@@ -21,6 +21,16 @@ export function isExplicitListCheck(transcript) {
   );
 }
 
+export function isGenericListReference(transcript) {
+  const text = String(transcript || "");
+  return (
+    /\b(?:add|put|include|get|grab|pick up|want|choose|take)\b/i.test(text) &&
+    /\b(?:it|this(?:\s+(?:one|item|product))?|that(?:\s+(?:one|item|product))?|the\s+(?:first|second|third)\s+one|one of those)\b/i.test(
+      text,
+    )
+  );
+}
+
 function storeFromText(text) {
   if (/\bcoles\b/i.test(text)) return "Coles";
   if (/\b(?:woolworths|woolies)\b/i.test(text)) return "Woolworths";
@@ -94,7 +104,7 @@ function candidateItemName(text) {
 
   item = item
     .replace(
-      /\b(?:to|on)\s+(?:my\s+)?(?:shopping\s+)?(?:list|cart|trolley|basket)\b.*$/i,
+      /\b(?:to|on)\s+(?:(?:my|the|our)\s+)?(?:shopping\s+)?(?:list|cart|trolley|basket)\b.*$/i,
       "",
     )
     .replace(/[.!?,;:]+$/g, "")

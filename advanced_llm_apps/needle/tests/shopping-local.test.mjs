@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   isExplicitListCheck,
+  isGenericListReference,
   parseVoiceShoppingActions,
 } from "../extension/shopping.js";
 
@@ -24,6 +25,16 @@ test("direct spoken list requests keep the item, price and retailer together", (
     },
   ]);
   assert.deepEqual(actions.completedItems, []);
+});
+
+test("adding a named item to the list accepts the article 'the'", () => {
+  const actions = parseVoiceShoppingActions(
+    "Add Alan's Peaches and Cream to the list.",
+    items,
+  );
+  assert.deepEqual(actions.addItems, [
+    { name: "Alan's Peaches and Cream", store: "", price: "" },
+  ]);
 });
 
 test("a named retailer item the shopper wants can be added locally", () => {
@@ -100,6 +111,12 @@ test("a bare yes is not a shopping-list addition or catalogue search", () => {
   assert.deepEqual(actions.addItems, []);
   assert.deepEqual(actions.completedItems, []);
   assert.equal(actions.listCheck, false);
+});
+
+test("a visual pointer is not treated as a product search", () => {
+  assert.equal(isGenericListReference("Add this one to the list"), true);
+  assert.equal(isGenericListReference("Put it on my shopping list"), true);
+  assert.equal(isGenericListReference("Find one litre milk"), false);
 });
 
 test("a search need without a retailer remains a Jev catalogue request", () => {
