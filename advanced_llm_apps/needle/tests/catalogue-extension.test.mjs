@@ -29,6 +29,10 @@ test("cleans conversational framing for the retailer search URL", () => {
     retailerSearchTerm("specials on cheddar"),
     "specials on cheddar",
   );
+  assert.equal(
+    retailerSearchTerm("Can you get me some peach lollies as well?"),
+    "peach lollies",
+  );
 });
 
 test("recognizes reusable search pages for both retailers", () => {

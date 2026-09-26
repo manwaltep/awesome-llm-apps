@@ -82,14 +82,19 @@ export function retailerSearchTerm(query) {
   return String(query || "")
     .trim()
     .replace(
-      /^(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:find(?: me)?|search(?: for)?|look(?:ing)? for|show(?: me)?|compare|check(?: for)?)\s+/i,
+      /^(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:find(?: me)?|search(?: for)?|look(?:ing)?(?: up)?(?: for)?|show(?: me)?|compare|check(?: for)?|(?:get|grab)(?:\s+me)?|look up)\s+/i,
       "",
     )
-    .replace(/^(?:i|we)\s+(?:need|want)\s+(?:some\s+)?/i, "")
+    .replace(
+      /^(?:i|we)\s+(?:need|want|would like|need to find)\s+(?:some\s+)?/i,
+      "",
+    )
+    .replace(/^(?:some|a|an)\s+/i, "")
     .replace(
       /\s+(?:at|from|in)\s+(?:woolworths?|woolies?|coles)(?: supermarket)?[.!?]*$/i,
       "",
     )
+    .replace(/\s+(?:please|as well|too)[.!?]*$/i, "")
     .trim();
 }
 

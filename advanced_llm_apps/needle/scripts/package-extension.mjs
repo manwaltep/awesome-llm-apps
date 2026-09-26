@@ -13,6 +13,7 @@ const entries = [
   "background.js",
   "catalogue.js",
   "voice.js",
+  "shopping.js",
   "microphone.html",
   "microphone.js",
   "microphone.css",

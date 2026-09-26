@@ -8,8 +8,8 @@ Needle is a Chrome side-panel shopping companion built on the open-source Jev se
 - **Find the sentence that matters.** Bright green highlights the strongest sentence; pale green keeps the surrounding context visible.
 - **Stay on the page.** Open the Chrome extension on a webpage and jump between matching passages.
 - **Search both catalogues.** Jev ranks visible product cards from official Woolworths and Coles pages in separate tabs and links results to their source pages.
-- **Talk with Voice.** Voice is a live speech-to-speech conversation. After a voice search, Voice reads Jev's sourced catalogue matches aloud and asks which exact match, if any, to add.
-- **Keep one shopping list across tabs.** The list and separate notes field are stored in the current Chrome profile. Accepted catalogue items keep their retailer label. Voice adds to Needle's shared list; it does not add products to a retailer checkout cart.
+- **Talk with Voice.** Voice is live speech-to-speech. It gives a short introduction, reads Jev's sourced catalogue matches, and asks only the brief question needed to choose between them. Adding an identified item updates the visible list without a spoken repeat.
+- **Keep one shopping list across tabs.** The list and separate notes field are stored in the current Chrome profile. Items keep their retailer and price when supplied. Ask Voice to read back the list whenever you want a confirmation check. Needle does not add products to a retailer checkout cart.
 - **Explore your own text.** Paste an article, policy, or document into the React app, or start with one of the included examples.
 - **Read the original source.** Results point to existing text, with a relevance ranking and a copy button in the React app.
 
@@ -17,14 +17,14 @@ Needle is a Chrome side-panel shopping companion built on the open-source Jev se
 
 1. The extension opens the official Woolworths and Coles search pages in separate tabs and extracts visible product-card text after you grant access to those sites.
 2. The text query and product passages go to the Needle backend. TypeSafe Jev ranks them and selects relevant original source text.
-3. Voice uses `gpt-realtime-2.1` for direct speech-to-speech. `gpt-4o-mini-transcribe` supplies the transcript shown in the app; Jev receives the text only. After Jev returns sourced matches, the app passes the top choices to Voice to summarize aloud.
-4. A clear spoken choice adds only that exact sourced item, with its retailer label, to Needle's shared list. A vague “yes” when multiple results were found prompts Voice to ask which one. `gpt-5.4-mini` interprets other explicit list requests, while a deterministic guard prevents catalogue results or suggestions from checking off an item; the shopper must explicitly confirm finding it in store, picking it up at the store, buying it, or putting that listed item in a trolley/cart/basket.
+3. Voice uses `gpt-realtime-2.1` for direct speech-to-speech. `gpt-4o-mini-transcribe` supplies the transcript shown in the app; Jev receives text only. Automatic replies are disabled so the app can keep Voice quiet while Jev searches, then pass sourced matches to Voice to read aloud.
+4. Naming a unique catalogue match adds only that item to Needle's list, with its retailer and price when available. A vague “yes” when multiple results were found prompts one short clarification and never becomes a catalogue query. Simple list additions, check-offs and explicit list checks are handled locally, without a separate intent-model call. Voice reads the list only when asked. Needle does not edit retailer checkout carts.
 
 The backend sends Jev evaluations to TypeSafe's [System One API](https://docs.typesafe.ai/api). If you use a Vercel AI Gateway key instead, it routes through [Vercel AI Gateway's evaluation API](https://vercel.com/docs/ai-gateway/modalities/evaluation). Jev selects source sentences rather than generating an answer. Results with relevance scores of at least `0.58` are included; this is a ranking threshold, not a guarantee that every relevant passage was found.
 
 ## How to Get Started
 
-Requires **Node.js 22.12+**, npm, and a TypeSafe API key for direct Jev access, or a Vercel AI Gateway key with access to Jev. Voice and transcript-based list updates require an **OpenAI API key**.
+Requires **Node.js 22.12+**, npm, and a TypeSafe API key for direct Jev access, or a Vercel AI Gateway key with access to Jev. Voice requires an **OpenAI API key**.
 
 ```sh
 git clone https://github.com/manwaltep/awesome-llm-apps.git
@@ -42,7 +42,7 @@ TYPESAFE_API_KEY=your_typesafe_jev_key
 OPENAI_API_KEY=your_openai_api_key
 ```
 
-The TypeSafe key powers Jev directly. The backend also recognizes a TypeSafe `apikey_` key saved under the older `AI_GATEWAY_API_KEY` name, or a Vercel AI Gateway key in that variable. The OpenAI key powers Voice and text-only list updates. Keep provider keys on the server; never put them in the extension or a `VITE_` variable.
+The TypeSafe key powers Jev directly. The backend also recognizes a TypeSafe `apikey_` key saved under the older `AI_GATEWAY_API_KEY` name, or a Vercel AI Gateway key in that variable. The OpenAI key powers Voice. Keep provider keys on the server; never put them in the extension or a `VITE_` variable.
 
 ## Run the App
 
@@ -80,15 +80,15 @@ The extension side panel stays open as you change tabs. Press **Cmd+Shift+Y** on
 
 Type a product request such as “oat milk under $4” and choose **Search**. Needle opens or updates separate Woolworths and Coles search tabs while keeping the side panel open. Jev ranks visible product cards and shows only matches over its relevance threshold. Select **Open retailer page** to continue on the source site.
 
-Product layouts change. If Jev reports no readable product cards, inspect the retailer tabs and search again. Prices and offers can change on the source site; Needle shows only text captured from those pages. For a voice search, Voice reads up to three top matches and asks before adding one exact choice to the Needle list. This does not place anything in a retailer's checkout cart.
+Product layouts change. If Jev reports no readable product cards, inspect the retailer tabs and search again. Prices and offers can change on the source site; Needle shows only text captured from those pages. For a voice search, Voice reads up to three top matches and asks which one you mean. A clear choice adds that exact match to Needle's list without a spoken success message. This does not place anything in a retailer's checkout cart.
 
 ### Speak with Voice
 
-Choose **Start voice** and allow microphone access. Once the **Connected** badge appears, Voice gives a short introduction and explains how Jev and the shopping list work. Voice replies aloud and its transcript appears in the panel. Jev separately searches the text transcript; it does not receive speech audio. Once Jev returns, Voice speaks the sourced matches, then asks before adding the exact item the shopper chooses. If multiple matches were found, saying just “yes” does not add anything; choose the item by name or number. Needle only updates its shared shopping list, not Woolworths or Coles checkout carts.
+Choose **Start voice** and allow microphone access. Once the **Connected** badge appears, Voice gives a short introduction and explains how Jev and the shopping list work. Voice replies aloud and its transcript appears in the panel. Jev separately searches the text transcript; it does not receive speech audio. While Jev searches, Voice stays quiet. It reads sourced matches when they arrive. Name the item, retailer, or choice number to add that exact product. A bare “yes” with multiple matches asks one short clarification and is never sent to Jev. To hear a confirmation check of your list, ask Voice to read it back.
 
 ### Shopping list and notes
 
-The list is stored in `chrome.storage.local` and shared across tabs in the same Chrome profile. You can add, remove, or check off items manually. Voice adds a catalogue match only after you clearly choose or approve it, and stores its Woolworths/Coles label with that exact product. Direct requests to add a named item can also add that item. Needle does not edit retailer checkout carts. It may check an item off only after you explicitly confirm that you found it in store, picked it up at the store, bought it, or put it in a trolley/cart/basket. Notes are a separate freeform field.
+The list is stored in `chrome.storage.local` and shared across tabs in the same Chrome profile. You can add, remove, or check off items manually. A direct request to add one identified item adds only that item and keeps its retailer and price when provided. Voice reads the list back only when you explicitly ask for a check. It may check an item off only after you say you found it in store, picked it up, bought it, or put that listed item in a trolley/cart/basket. Notes are a separate freeform field.
 
 ### On a webpage
 
@@ -106,16 +106,16 @@ For a PDF with selectable text, copy the relevant text and use **Bring your own 
 
 ### Troubleshooting
 
-| What you see                                 | What to do                                                                                                                                                                                                                          |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Cannot reach Needle                          | Start `npm run dev` and use `http://127.0.0.1:4199` as the extension's server URL. Keep that terminal running.                                                                                                                      |
-| Jev key or credits error                     | Check that `TYPESAFE_API_KEY` contains a TypeSafe Jev API key, or that `AI_GATEWAY_API_KEY` contains a Vercel AI Gateway key. Check account access and credits, then restart the server.                                            |
-| Voice or transcript list updates unavailable | Check `OPENAI_API_KEY` in `.env`, then restart the local server.                                                                                                                                                                    |
-| Microphone permission dismissed              | Open `chrome://extensions` → Needle → **Details** → **Site settings** and allow the microphone. On macOS, also allow Chrome in System Settings → Privacy & Security → Microphone. Return to Needle and click **Start voice** again. |
-| Chrome shows a retailer reload banner        | Reload the Woolworths or Coles page once so Chrome applies the catalogue access you just granted.                                                                                                                                   |
-| Chrome cannot find the manifest              | Choose the `extension/` folder containing `manifest.json`. If using the download, unzip it first.                                                                                                                                   |
-| Changes do not appear                        | Reload Needle at `chrome://extensions`, then refresh the webpage.                                                                                                                                                                   |
-| No searchable text                           | Try a regular webpage. Built-in PDF viewers, browser settings pages, images and scanned text are unsupported.                                                                                                                       |
+| What you see                          | What to do                                                                                                                                                                                                                          |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cannot reach Needle                   | Start `npm run dev` and use `http://127.0.0.1:4199` as the extension's server URL. Keep that terminal running.                                                                                                                      |
+| Jev key or credits error              | Check that `TYPESAFE_API_KEY` contains a TypeSafe Jev API key, or that `AI_GATEWAY_API_KEY` contains a Vercel AI Gateway key. Check account access and credits, then restart the server.                                            |
+| Voice will not connect                | Check `OPENAI_API_KEY` in `.env`, then restart the local server.                                                                                                                                                                    |
+| Microphone permission dismissed       | Open `chrome://extensions` → Needle → **Details** → **Site settings** and allow the microphone. On macOS, also allow Chrome in System Settings → Privacy & Security → Microphone. Return to Needle and click **Start voice** again. |
+| Chrome shows a retailer reload banner | Reload the Woolworths or Coles page once so Chrome applies the catalogue access you just granted.                                                                                                                                   |
+| Chrome cannot find the manifest       | Choose the `extension/` folder containing `manifest.json`. If using the download, unzip it first.                                                                                                                                   |
+| Changes do not appear                 | Reload Needle at `chrome://extensions`, then refresh the webpage.                                                                                                                                                                   |
+| No searchable text                    | Try a regular webpage. Built-in PDF viewers, browser settings pages, images and scanned text are unsupported.                                                                                                                       |
 
 ## API Key and Connection Settings
 
@@ -123,7 +123,7 @@ For a PDF with selectable text, copy the relevant text and use **Bring your own 
 | --------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `TYPESAFE_API_KEY`    | Backend `.env`, or Vercel project environment variables        | Authenticates direct TypeSafe Jev API calls; never goes into the extension   |
 | `AI_GATEWAY_API_KEY`  | Backend `.env`, or Vercel project environment variables        | Optional Vercel AI Gateway credential for Jev; never goes into the extension |
-| `OPENAI_API_KEY`      | Backend `.env`, or Vercel project environment variables        | Realtime Voice and GPT-5.4-mini list intent; never goes into the extension   |
+| `OPENAI_API_KEY`      | Backend `.env`, or Vercel project environment variables        | Realtime Voice; never goes into the extension                                |
 | `NEEDLE_ACCESS_TOKEN` | Backend environment, then the same value in extension settings | Protects access to your backend; required on Vercel, optional locally        |
 | Needle server URL     | Extension settings                                             | Your local backend or your own HTTPS deployment                              |
 
@@ -139,7 +139,7 @@ For the web playground on a protected backend, enter the access token in **How i
    ```
 
 3. Deploy. In extension settings, use your deployment’s HTTPS origin and the access token. Allow access to that server when Chrome prompts you.
-4. Jev search and transcript-based list updates use Vercel API routes. Realtime Voice requires a WebSocket server; the included WebSocket endpoint runs in the local Node server and is not hosted by Vercel Functions.
+4. Jev search uses Vercel API routes. Shopping-list actions run in the extension. Realtime Voice requires a WebSocket server; the included WebSocket endpoint runs in the local Node server and is not hosted by Vercel Functions.
 5. `/api/health` confirms whether keys are configured; it does not validate the keys or account credits.
 
 The backend refuses search requests on Vercel if `NEEDLE_ACCESS_TOKEN` is missing. Use the token only for your own installation or a small trusted group. A general public service needs individual user authentication, rate limits, quotas and a billing decision; this template does not implement those. If Vercel Deployment Protection is enabled, the extension cannot complete its browser-login challenge. Use a backend reachable by the extension and retain Needle’s token check.
@@ -150,7 +150,7 @@ The backend refuses search requests on Vercel if `NEEDLE_ACCESS_TOKEN` is missin
 needle/
 |-- src/                  React app, components, styles and example documents
 |-- extension/            Chrome extension, persistent side panel, settings and page search
-|-- server/               Local server, Jev requests, list intent and Realtime WebSocket proxy
+|-- server/               Local server, Jev requests and Realtime WebSocket proxy
 |-- api/                  Vercel API functions
 |-- public/               App assets and generated extension download
 |-- scripts/              Extension ZIP packaging
@@ -163,7 +163,7 @@ needle/
 
 - Catalogue search reads visible product-card text only after you invoke a search and grant access to Woolworths and Coles. It sends the search text and captured passages to the configured backend, then to Jev through TypeSafe System One or the configured Vercel AI Gateway.
 - Page search runs only when you invoke it. It does not collect password/input values, browsing history, cookies, or screenshots.
-- When you start Voice, Needle requests microphone permission in a full extension tab because Chrome may dismiss prompts requested from the side panel. The permission check stops its audio stream immediately. Once connected, Voice speaks an introduction; microphone audio then travels through the local Needle server to the OpenAI Realtime API. Its transcript is shown in the panel and passed as text for Jev search and GPT-5.4-mini list-action interpretation.
+- When you start Voice, Needle requests microphone permission in a full extension tab because Chrome may dismiss prompts requested from the side panel. The permission check stops its audio stream immediately. Once connected, Voice speaks an introduction; microphone audio then travels through the local Needle server to the OpenAI Realtime API. Its transcript is shown in the panel. The extension routes product searches to Jev and handles straightforward list actions locally.
 - The backend does not intentionally persist or log page text or transcripts. Hosting and model-provider policies still apply. The extension stores the shopping list, notes, server URL and app access token in Chrome local storage.
 - Up to **160 passages / 60,000 characters**, with at most **2,200 characters per passage**. The extension skips oversized passages and reports omissions. Very long pages may only be partially searched. Pasted text is split into bounded passages.
 - Chrome system pages, the Chrome Web Store, built-in PDF viewers, scanned text, cross-origin frames and shadow-root content are unsupported. Dynamic page changes may invalidate results; search again.
@@ -182,7 +182,7 @@ Stop the dev server before running preview on the same port, or choose another `
 
 `npm run package:extension` produces:
 
-- `artifacts/needle-extension-v1.2.5.zip` for release attachment.
+- `artifacts/needle-extension-v1.2.6.zip` for release attachment.
 - `public/needle-extension.zip` for the app’s download link; production builds copy it to `dist/`.
 
 ZIP packaging uses an explicit file allowlist and does not include the backend, `.env`, dependencies or development output. Build artifacts are not committed.

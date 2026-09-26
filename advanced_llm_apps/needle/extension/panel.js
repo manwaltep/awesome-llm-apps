@@ -4,13 +4,18 @@ import {
   retailerSearchTerm,
 } from "./catalogue.js";
 import {
+  createVoiceClarificationEvent,
   createVoiceCatalogueResultsEvent,
   createVoiceIntroductionEvent,
+  createVoiceListCheckEvent,
+  catalogueQueryForVoiceTurn,
+  classifyBareVoiceReply,
   microphonePermissionMessage,
   needsMicrophonePermissionTab,
   prepareVoiceCatalogueOffers,
   resolveVoiceCatalogueConfirmation,
 } from "./voice.js";
+import { parseVoiceShoppingActions } from "./shopping.js";
 
 const $ = (selector) => document.querySelector(selector);
 const searchForm = $("#search-form");
@@ -57,6 +62,8 @@ let voiceResponseInProgress = false;
 let queuedVoiceResponse = null;
 let catalogueSearchSequence = 0;
 let voiceTurnSequence = 0;
+let awaitingSearchTerms = false;
+let awaitingSearchStores = [];
 
 function setStatus(node, message, error = false) {
   node.textContent = message;
@@ -117,13 +124,18 @@ function renderList() {
     const name = document.createElement("span");
     name.className = "item-name";
     name.textContent = item.name;
+    row.append(checkbox, name);
+    if (item.price) {
+      const price = document.createElement("span");
+      price.className = "item-price";
+      price.textContent = item.price;
+      row.append(price);
+    }
     if (item.store === "Coles" || item.store === "Woolworths") {
       const store = document.createElement("span");
       store.className = `item-store${item.store === "Coles" ? " coles" : ""}`;
       store.textContent = item.store;
-      row.append(checkbox, name, store);
-    } else {
-      row.append(checkbox, name);
+      row.append(store);
     }
     const remove = document.createElement("button");
     remove.type = "button";
@@ -141,28 +153,44 @@ function renderList() {
   }
 }
 
-function addManualItem(name, store = "") {
+function addManualItem(name, metadata = {}) {
   const clean = String(name || "")
     .trim()
     .replace(/\s+/g, " ");
+  const options =
+    typeof metadata === "string" ? { store: metadata } : metadata || {};
+  const store = options.store;
+  const price = String(options.price || "").trim();
   const sourceStore = ["Coles", "Woolworths"].includes(store) ? store : "";
-  if (
-    !clean ||
-    shoppingList.some((item) => {
-      const sameName =
-        item.name.toLocaleLowerCase() === clean.toLocaleLowerCase();
-      const sameStore =
-        !sourceStore || !item.store || item.store === sourceStore;
-      return sameName && sameStore;
-    })
-  )
+  if (!clean) return false;
+  const existing = shoppingList.find((item) => {
+    const sameName =
+      item.name.toLocaleLowerCase() === clean.toLocaleLowerCase();
+    const sameStore = !sourceStore || !item.store || item.store === sourceStore;
+    return sameName && sameStore;
+  });
+  if (existing) {
+    const updated = {
+      ...existing,
+      ...(sourceStore && !existing.store ? { store: sourceStore } : {}),
+      ...(price && !existing.price ? { price } : {}),
+    };
+    if (updated.store !== existing.store || updated.price !== existing.price) {
+      shoppingList = shoppingList.map((item) =>
+        item.id === existing.id ? updated : item,
+      );
+      chrome.storage.local.set({ shoppingList });
+      renderList();
+    }
     return false;
+  }
   shoppingList = [
     ...shoppingList,
     {
       id: crypto.randomUUID(),
       name: clean,
       ...(sourceStore ? { store: sourceStore } : {}),
+      ...(price ? { price } : {}),
       checked: false,
     },
   ];
@@ -253,6 +281,8 @@ async function searchCatalogues(
   const searchId = ++catalogueSearchSequence;
   pendingVoiceOffers = [];
   queuedVoiceResponse = null;
+  awaitingSearchTerms = false;
+  awaitingSearchStores = [];
   if (!Array.isArray(requestedStores) || requestedStores.length === 0) {
     setStatus(
       searchStatus,
@@ -322,6 +352,9 @@ async function searchCatalogues(
       voiceSocket?.readyState === WebSocket.OPEN
     ) {
       pendingVoiceOffers = prepareVoiceCatalogueOffers(result.offers || []);
+      if (pendingVoiceOffers.length) awaitingSearchStores = [];
+      else awaitingSearchStores = [...requestedStores];
+      awaitingSearchTerms = pendingVoiceOffers.length === 0;
       queueVoiceResponse(
         createVoiceCatalogueResultsEvent({
           query: clean,
@@ -361,35 +394,26 @@ function flushQueuedVoiceResponse() {
   queuedVoiceResponse = null;
 }
 
-function isListOnlyFallback(text) {
-  const hasAction =
-    /\b(?:add|put|include|found|got|picked up|grabbed|bought|purchased|collected|check off)\b/i.test(
-      text,
-    );
-  const hasTarget =
-    /\b(?:my list|shopping list|trolley|cart|basket|shelf|aisle|store|shop)\b/i.test(
-      text,
-    );
-  const mentionsListedItem = shoppingList.some((item) =>
-    text.toLocaleLowerCase().includes(item.name.toLocaleLowerCase()),
-  );
-  return hasAction && (hasTarget || mentionsListedItem);
-}
-
 async function applyVoiceTranscript(text, itemId) {
   const clean = String(text || "").trim();
   if (!clean || (itemId && receivedItems.has(itemId))) return;
   if (itemId) receivedItems.add(itemId);
   const voiceTurnId = ++voiceTurnSequence;
+  const wasAwaitingSearchTerms = awaitingSearchTerms;
+  const followupStores = [...awaitingSearchStores];
   addTranscript("You", clean);
+  const localActions = parseVoiceShoppingActions(clean, shoppingList);
+  if (localActions.listCheck) {
+    queueVoiceResponse(createVoiceListCheckEvent(shoppingList), voiceTurnId);
+    return;
+  }
   if (pendingVoiceOffers.length) {
     const choice = resolveVoiceCatalogueConfirmation(clean, pendingVoiceOffers);
     if (choice.kind === "accepted") {
-      const store = choice.offer.store;
-      if (addManualItem(choice.offer.title, store))
-        actionNote.textContent = `Jev added ${choice.offer.title} from ${store} to your shopping list.`;
-      else
-        actionNote.textContent = `${choice.offer.title} is already on your shopping list.`;
+      addManualItem(choice.offer.title, {
+        store: choice.offer.store,
+        price: choice.offer.price,
+      });
       pendingVoiceOffers = [];
       return;
     }
@@ -402,58 +426,63 @@ async function applyVoiceTranscript(text, itemId) {
     if (choice.kind === "ambiguous") {
       actionNote.textContent =
         "Choose one exact catalogue result by name or number, or say no.";
+      queueVoiceResponse(
+        createVoiceClarificationEvent(
+          "ask which catalogue result they mean by name, retailer, or number.",
+        ),
+        voiceTurnId,
+      );
       return;
     }
     // A new request or unrelated reply clears the old choice before processing it.
     pendingVoiceOffers = [];
   }
-  let intent = null;
-  try {
-    const data = await chrome.runtime.sendMessage({
-      type: "SHOPPING_INTENT",
-      payload: { transcript: clean, items: shoppingList },
-    });
-    if (!data || data.error)
-      throw new Error(data?.error || "Text list updates are unavailable.");
-    intent = data;
-    const intentStore =
-      intent.stores?.length === 1
-        ? intent.stores[0] === "coles"
-          ? "Coles"
-          : "Woolworths"
-        : "";
-    for (const name of intent.addItems || []) {
-      if (addManualItem(name, intentStore))
-        actionNote.textContent = `Jev added ${name}${intentStore ? ` from ${intentStore}` : ""} to your shopping list.`;
-    }
-    const completed = new Set(intent.completedItems || []);
-    const justCompleted = shoppingList.filter(
-      (item) => completed.has(item.id) && !item.checked,
+  const bareReply = classifyBareVoiceReply(clean);
+  if (wasAwaitingSearchTerms && bareReply === "affirmative") {
+    queueVoiceResponse(
+      createVoiceClarificationEvent(
+        "ask what product name they want Jev to search for.",
+      ),
+      voiceTurnId,
     );
-    if (justCompleted.length) {
-      shoppingList = shoppingList.map((item) =>
-        completed.has(item.id) ? { ...item, checked: true } : item,
-      );
-      await chrome.storage.local.set({ shoppingList });
-      renderList();
-      actionNote.textContent = `Jev checked off ${justCompleted.map((item) => item.name).join(", ")} after your confirmation: “${clean}”`;
-    }
-  } catch (error) {
-    voiceStatus.textContent = `Text update unavailable: ${error.message}`;
+    return;
   }
-  if (
-    intent?.catalogueQuery?.trim() ||
-    (!intent && !isListOnlyFallback(clean))
-  ) {
-    const retailQuery =
-      intent?.catalogueQuery?.trim() || retailerSearchTerm(clean) || clean;
-    await searchCatalogues(
-      clean,
-      retailQuery,
-      null,
-      intent?.stores || retailersFromRequest(clean),
-      { announceToVoice: true, voiceTurnId },
+  if (wasAwaitingSearchTerms && bareReply === "negative") {
+    awaitingSearchTerms = false;
+    awaitingSearchStores = [];
+    return;
+  }
+  if (wasAwaitingSearchTerms) {
+    awaitingSearchTerms = false;
+    awaitingSearchStores = [];
+  }
+  if (bareReply) return;
+  if (localActions.addItems.length || localActions.completedItems.length) {
+    for (const item of localActions.addItems) addManualItem(item.name, item);
+    const completed = new Set(localActions.completedItems);
+    shoppingList = shoppingList.map((item) =>
+      completed.has(item.id) ? { ...item, checked: true } : item,
     );
+    await chrome.storage.local.set({ shoppingList });
+    renderList();
+    return;
+  }
+  const catalogueQuery = catalogueQueryForVoiceTurn({
+    transcript: clean,
+    awaitingSearchTerms: wasAwaitingSearchTerms,
+  });
+  if (catalogueQuery) {
+    const retailQuery = retailerSearchTerm(catalogueQuery) || catalogueQuery;
+    const namesRetailer = /\b(?:woolworths|woolies|coles)\b/i.test(clean);
+    const requestedStores = namesRetailer
+      ? retailersFromRequest(clean)
+      : wasAwaitingSearchTerms && followupStores.length
+        ? followupStores
+        : retailersFromRequest(clean);
+    await searchCatalogues(clean, retailQuery, null, requestedStores, {
+      announceToVoice: true,
+      voiceTurnId,
+    });
   }
 }
 
@@ -542,6 +571,8 @@ function closeVoice(message = "Microphone is off.") {
   voiceResponseInProgress = false;
   queuedVoiceResponse = null;
   pendingVoiceOffers = [];
+  awaitingSearchTerms = false;
+  awaitingSearchStores = [];
   voiceButton.setAttribute("aria-pressed", "false");
   voiceLabel.textContent = "Start voice";
   setVoiceConnection(
@@ -709,7 +740,7 @@ async function startVoice() {
           introPending = false;
           setStatus(
             voiceStatus,
-            "Connected and listening. Ask Voice to find a product or help update your list.",
+            "Connected and listening. Ask Jev to search, name an item to add, or ask Voice to read your list.",
           );
         }
         flushQueuedVoiceResponse();
