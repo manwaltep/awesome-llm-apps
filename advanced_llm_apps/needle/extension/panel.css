@@ -439,6 +439,19 @@ textarea::placeholder {
   overflow-wrap: anywhere;
   font-size: 12px;
 }
+.item-store {
+  flex: none;
+  padding: 3px 6px;
+  border-radius: 999px;
+  color: #426047;
+  background: #edf4e9;
+  font-size: 10px;
+  font-weight: 700;
+}
+.item-store.coles {
+  color: #a5262b;
+  background: #fbecee;
+}
 .list-row.checked .item-name {
   color: #89938b;
   text-decoration: line-through;

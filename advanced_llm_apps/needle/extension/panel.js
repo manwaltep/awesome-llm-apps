@@ -4,9 +4,12 @@ import {
   retailerSearchTerm,
 } from "./catalogue.js";
 import {
+  createVoiceCatalogueResultsEvent,
   createVoiceIntroductionEvent,
   microphonePermissionMessage,
   needsMicrophonePermissionTab,
+  prepareVoiceCatalogueOffers,
+  resolveVoiceCatalogueConfirmation,
 } from "./voice.js";
 
 const $ = (selector) => document.querySelector(selector);
@@ -49,6 +52,11 @@ let voiceAttempt = 0;
 let introPending = false;
 let pendingCatalogueSearch = null;
 let receivedItems = new Set();
+let pendingVoiceOffers = [];
+let voiceResponseInProgress = false;
+let queuedVoiceResponse = null;
+let catalogueSearchSequence = 0;
+let voiceTurnSequence = 0;
 
 function setStatus(node, message, error = false) {
   node.textContent = message;
@@ -109,6 +117,14 @@ function renderList() {
     const name = document.createElement("span");
     name.className = "item-name";
     name.textContent = item.name;
+    if (item.store === "Coles" || item.store === "Woolworths") {
+      const store = document.createElement("span");
+      store.className = `item-store${item.store === "Coles" ? " coles" : ""}`;
+      store.textContent = item.store;
+      row.append(checkbox, name, store);
+    } else {
+      row.append(checkbox, name);
+    }
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "remove-item";
@@ -120,25 +136,35 @@ function renderList() {
       actionNote.textContent = `You removed ${item.name} from the list.`;
       renderList();
     });
-    row.append(checkbox, name, remove);
+    row.append(remove);
     listNode.append(row);
   }
 }
 
-function addManualItem(name) {
+function addManualItem(name, store = "") {
   const clean = String(name || "")
     .trim()
     .replace(/\s+/g, " ");
+  const sourceStore = ["Coles", "Woolworths"].includes(store) ? store : "";
   if (
     !clean ||
-    shoppingList.some(
-      (item) => item.name.toLocaleLowerCase() === clean.toLocaleLowerCase(),
-    )
+    shoppingList.some((item) => {
+      const sameName =
+        item.name.toLocaleLowerCase() === clean.toLocaleLowerCase();
+      const sameStore =
+        !sourceStore || !item.store || item.store === sourceStore;
+      return sameName && sameStore;
+    })
   )
     return false;
   shoppingList = [
     ...shoppingList,
-    { id: crypto.randomUUID(), name: clean, checked: false },
+    {
+      id: crypto.randomUUID(),
+      name: clean,
+      ...(sourceStore ? { store: sourceStore } : {}),
+      checked: false,
+    },
   ];
   chrome.storage.local.set({ shoppingList });
   renderList();
@@ -220,9 +246,13 @@ async function searchCatalogues(
   retailerQuery = query,
   permissionRequest = null,
   requestedStores = retailersFromRequest(query),
+  { announceToVoice = false, voiceTurnId = null } = {},
 ) {
   const clean = String(query || "").trim();
   if (!clean) return;
+  const searchId = ++catalogueSearchSequence;
+  pendingVoiceOffers = [];
+  queuedVoiceResponse = null;
   if (!Array.isArray(requestedStores) || requestedStores.length === 0) {
     setStatus(
       searchStatus,
@@ -247,6 +277,8 @@ async function searchCatalogues(
       query: clean,
       retailerQuery: cleanRetailerQuery,
       stores: requestedStores,
+      announceToVoice,
+      voiceTurnId,
     };
     retailerAccessButton.hidden = false;
     setStatus(
@@ -275,6 +307,7 @@ async function searchCatalogues(
     });
     if (!result || result.error)
       throw new Error(result?.error || "Jev could not complete this search.");
+    if (searchId !== catalogueSearchSequence) return;
     renderOffers(result.offers || [], result.productsSeen || 0);
     setStatus(
       searchStatus,
@@ -282,9 +315,50 @@ async function searchCatalogues(
         ? `Jev found ${result.offers.length} sourced match${result.offers.length === 1 ? "" : "es"} in ${result.elapsedMs} ms.`
         : "Search complete. No catalogue match passed Jev’s relevance threshold.",
     );
+    if (
+      announceToVoice &&
+      sessionReady &&
+      voiceTurnId === voiceTurnSequence &&
+      voiceSocket?.readyState === WebSocket.OPEN
+    ) {
+      pendingVoiceOffers = prepareVoiceCatalogueOffers(result.offers || []);
+      queueVoiceResponse(
+        createVoiceCatalogueResultsEvent({
+          query: clean,
+          offers: result.offers || [],
+          productsSeen: result.productsSeen || 0,
+        }),
+        voiceTurnId,
+      );
+    }
   } catch (error) {
+    if (searchId !== catalogueSearchSequence) return;
     setStatus(searchStatus, error.message, true);
   }
+}
+
+function queueVoiceResponse(event, voiceTurnId) {
+  if (
+    !sessionReady ||
+    voiceTurnId !== voiceTurnSequence ||
+    voiceSocket?.readyState !== WebSocket.OPEN
+  )
+    return;
+  queuedVoiceResponse = { event, voiceTurnId };
+  flushQueuedVoiceResponse();
+}
+
+function flushQueuedVoiceResponse() {
+  if (
+    voiceResponseInProgress ||
+    !queuedVoiceResponse ||
+    !sessionReady ||
+    queuedVoiceResponse.voiceTurnId !== voiceTurnSequence ||
+    voiceSocket?.readyState !== WebSocket.OPEN
+  )
+    return;
+  voiceSocket.send(JSON.stringify(queuedVoiceResponse.event));
+  queuedVoiceResponse = null;
 }
 
 function isListOnlyFallback(text) {
@@ -306,7 +380,33 @@ async function applyVoiceTranscript(text, itemId) {
   const clean = String(text || "").trim();
   if (!clean || (itemId && receivedItems.has(itemId))) return;
   if (itemId) receivedItems.add(itemId);
+  const voiceTurnId = ++voiceTurnSequence;
   addTranscript("You", clean);
+  if (pendingVoiceOffers.length) {
+    const choice = resolveVoiceCatalogueConfirmation(clean, pendingVoiceOffers);
+    if (choice.kind === "accepted") {
+      const store = choice.offer.store;
+      if (addManualItem(choice.offer.title, store))
+        actionNote.textContent = `Jev added ${choice.offer.title} from ${store} to your shopping list.`;
+      else
+        actionNote.textContent = `${choice.offer.title} is already on your shopping list.`;
+      pendingVoiceOffers = [];
+      return;
+    }
+    if (choice.kind === "declined") {
+      pendingVoiceOffers = [];
+      actionNote.textContent =
+        "Jev did not add a catalogue match to your list.";
+      return;
+    }
+    if (choice.kind === "ambiguous") {
+      actionNote.textContent =
+        "Choose one exact catalogue result by name or number, or say no.";
+      return;
+    }
+    // A new request or unrelated reply clears the old choice before processing it.
+    pendingVoiceOffers = [];
+  }
   let intent = null;
   try {
     const data = await chrome.runtime.sendMessage({
@@ -316,9 +416,15 @@ async function applyVoiceTranscript(text, itemId) {
     if (!data || data.error)
       throw new Error(data?.error || "Text list updates are unavailable.");
     intent = data;
+    const intentStore =
+      intent.stores?.length === 1
+        ? intent.stores[0] === "coles"
+          ? "Coles"
+          : "Woolworths"
+        : "";
     for (const name of intent.addItems || []) {
-      if (addManualItem(name))
-        actionNote.textContent = `Jev added ${name} to your shopping list.`;
+      if (addManualItem(name, intentStore))
+        actionNote.textContent = `Jev added ${name}${intentStore ? ` from ${intentStore}` : ""} to your shopping list.`;
     }
     const completed = new Set(intent.completedItems || []);
     const justCompleted = shoppingList.filter(
@@ -346,6 +452,7 @@ async function applyVoiceTranscript(text, itemId) {
       retailQuery,
       null,
       intent?.stores || retailersFromRequest(clean),
+      { announceToVoice: true, voiceTurnId },
     );
   }
 }
@@ -432,6 +539,9 @@ function closeVoice(message = "Microphone is off.") {
   sessionReady = false;
   startingVoice = false;
   introPending = false;
+  voiceResponseInProgress = false;
+  queuedVoiceResponse = null;
+  pendingVoiceOffers = [];
   voiceButton.setAttribute("aria-pressed", "false");
   voiceLabel.textContent = "Start voice";
   setVoiceConnection(
@@ -589,12 +699,20 @@ async function startVoice() {
         }
         return;
       }
-      if (data.type === "response.done" && introPending) {
-        introPending = false;
-        setStatus(
-          voiceStatus,
-          "Connected and listening. Ask Voice to find a product or help update your list.",
-        );
+      if (data.type === "response.created") {
+        voiceResponseInProgress = true;
+        return;
+      }
+      if (data.type === "response.done") {
+        voiceResponseInProgress = false;
+        if (introPending) {
+          introPending = false;
+          setStatus(
+            voiceStatus,
+            "Connected and listening. Ask Voice to find a product or help update your list.",
+          );
+        }
+        flushQueuedVoiceResponse();
         return;
       }
       if (
@@ -683,6 +801,10 @@ retailerAccessButton.addEventListener("click", () => {
           pending.retailerQuery,
           Promise.resolve(true),
           pending.stores,
+          {
+            announceToVoice: pending.announceToVoice,
+            voiceTurnId: pending.voiceTurnId,
+          },
         );
       else setStatus(searchStatus, "Jev can now search both catalogues.");
     })

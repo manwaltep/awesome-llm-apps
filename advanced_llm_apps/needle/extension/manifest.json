@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Needle: Grocery catalogue companion",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "Search Woolworths and Coles with Jev, keep a shared shopping list, and talk with Voice.",
   "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
   "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
