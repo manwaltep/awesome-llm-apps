@@ -51,6 +51,14 @@
         <p class="subtle">
           Searches official Woolworths and Coles pages in separate tabs.
         </p>
+        <button
+          class="permission-button"
+          id="retailer-access"
+          type="button"
+          hidden
+        >
+          Allow catalogue access
+        </button>
         <p class="status" id="search-status" role="status" aria-live="polite">
           Ready when you are.
         </p>
@@ -67,14 +75,24 @@
           <div class="section-heading compact">
             <div>
               <p class="eyebrow">LIVE SPEECH-TO-SPEECH</p>
-              <h2 id="voice-title">Voice</h2>
+              <div class="voice-title">
+                <h2 id="voice-title">Voice</h2>
+                <span
+                  class="voice-connection"
+                  id="voice-connection"
+                  data-state="off"
+                  aria-label="Voice off"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <i aria-hidden="true"></i>
+                  <span id="voice-connection-label">Off</span>
+                </span>
+              </div>
             </div>
-            <span class="voice-wave" aria-hidden="true"
-              ><i></i><i></i><i></i><i></i><i></i
-            ></span>
           </div>
           <p class="subtle">
-            Voice speaks with you. Jev separately searches the transcript.
+            Voice talks with you. Jev separately searches what you say.
           </p>
         </div>
         <button class="voice-button" id="voice-toggle" type="button">

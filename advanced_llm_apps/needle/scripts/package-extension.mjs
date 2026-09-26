@@ -12,6 +12,7 @@ const entries = [
   "manifest.json",
   "background.js",
   "catalogue.js",
+  "voice.js",
   "panel.html",
   "panel.js",
   "panel.css",

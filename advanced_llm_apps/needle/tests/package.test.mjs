@@ -18,6 +18,7 @@ test("extension package contains all runtime files and icons but no backend or s
     "panel.js",
     "panel.css",
     "catalogue.js",
+    "voice.js",
     "content.js",
     "text-range.js",
     ...Object.values(manifest.icons),

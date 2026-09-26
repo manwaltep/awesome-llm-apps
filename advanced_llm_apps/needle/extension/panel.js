@@ -1,13 +1,20 @@
 import { isOfficialRetailerUrl, retailerSearchTerm } from "./catalogue.js";
+import {
+  createVoiceIntroductionEvent,
+  microphonePermissionMessage,
+} from "./voice.js";
 
 const $ = (selector) => document.querySelector(selector);
 const searchForm = $("#search-form");
 const queryInput = $("#query");
 const searchStatus = $("#search-status");
 const offersNode = $("#offers");
+const retailerAccessButton = $("#retailer-access");
 const voiceButton = $("#voice-toggle");
 const voiceLabel = $("#voice-button-label");
 const voiceStatus = $("#voice-status");
+const voiceConnection = $("#voice-connection");
+const voiceConnectionLabel = $("#voice-connection-label");
 const transcriptNode = $("#transcript");
 const listNode = $("#shopping-list");
 const actionNote = $("#action-note");
@@ -33,11 +40,20 @@ let playhead = 0;
 let playingSources = new Set();
 let sessionReady = false;
 let startingVoice = false;
+let voiceAttempt = 0;
+let introPending = false;
+let pendingCatalogueSearch = null;
 let receivedItems = new Set();
 
 function setStatus(node, message, error = false) {
   node.textContent = message;
   node.classList.toggle("error", Boolean(error));
+}
+
+function setVoiceConnection(state, label) {
+  voiceConnection.dataset.state = state;
+  voiceConnectionLabel.textContent = label;
+  voiceConnection.setAttribute("aria-label", `Voice ${label.toLowerCase()}`);
 }
 
 function addTranscript(speaker, text) {
@@ -184,38 +200,56 @@ function renderOffers(offers, productsSeen = 0) {
   }
 }
 
-async function ensureRetailerPermission() {
-  const permission = { origins: retailerOrigins };
-  if (await chrome.permissions.contains(permission)) return true;
-  return chrome.permissions.request(permission);
+async function updateRetailerAccessButton() {
+  try {
+    retailerAccessButton.hidden = await chrome.permissions.contains({
+      origins: retailerOrigins,
+    });
+  } catch {
+    retailerAccessButton.hidden = false;
+  }
 }
 
-async function searchCatalogues(query, retailerQuery = query) {
+async function searchCatalogues(
+  query,
+  retailerQuery = query,
+  permissionRequest = null,
+) {
   const clean = String(query || "").trim();
   if (!clean) return;
   queryInput.value = clean;
-  setStatus(searchStatus, "Checking access to the official catalogue pages…");
+  const cleanRetailerQuery = String(retailerQuery || clean).trim();
+  setStatus(searchStatus, "Checking catalogue access…");
   let granted = false;
   try {
-    granted = await ensureRetailerPermission();
+    granted = permissionRequest
+      ? await permissionRequest
+      : await chrome.permissions.contains({ origins: retailerOrigins });
   } catch {
     granted = false;
   }
   if (!granted) {
+    pendingCatalogueSearch = {
+      query: clean,
+      retailerQuery: cleanRetailerQuery,
+    };
+    retailerAccessButton.hidden = false;
     setStatus(
       searchStatus,
-      "Allow Needle to read Woolworths and Coles pages to search their catalogues.",
+      "Allow Jev catalogue access below to run this search.",
       true,
     );
     return;
   }
+  retailerAccessButton.hidden = true;
+  pendingCatalogueSearch = null;
   setStatus(searchStatus, "Jev is searching both catalogue tabs…");
   offersNode.replaceChildren();
   try {
     const result = await chrome.runtime.sendMessage({
       type: "CATALOGUE_SEARCH",
       query: clean,
-      retailerQuery: String(retailerQuery || clean).trim(),
+      retailerQuery: cleanRetailerQuery,
     });
     if (!result || result.error)
       throw new Error(result?.error || "Jev could not complete this search.");
@@ -351,9 +385,11 @@ function sendAudio(frame) {
 }
 
 async function beginCapture() {
-  micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  audioContext = new AudioContext({ sampleRate: 24000 });
-  await audioContext.resume();
+  if (!micStream || !audioContext)
+    throw new Error("Microphone access was not ready.");
+  if (audioContext.state !== "running") await audioContext.resume();
+  if (audioContext.state !== "running")
+    throw new Error("Chrome did not start audio playback.");
   micSource = audioContext.createMediaStreamSource(micStream);
   processor = audioContext.createScriptProcessor(1024, 1, 1);
   muteNode = audioContext.createGain();
@@ -362,17 +398,19 @@ async function beginCapture() {
   micSource.connect(processor);
   processor.connect(muteNode);
   muteNode.connect(audioContext.destination);
-  setStatus(
-    voiceStatus,
-    "Listening. Your speech is transcribed for Jev and shown above.",
-  );
 }
 
 function closeVoice(message = "Microphone is off.") {
+  voiceAttempt += 1;
   sessionReady = false;
   startingVoice = false;
+  introPending = false;
   voiceButton.setAttribute("aria-pressed", "false");
   voiceLabel.textContent = "Start voice";
+  setVoiceConnection(
+    message === "Microphone is off." ? "off" : "error",
+    message === "Microphone is off." ? "Off" : "Not connected",
+  );
   setStatus(voiceStatus, message);
   processor?.disconnect();
   micSource?.disconnect();
@@ -388,27 +426,73 @@ function closeVoice(message = "Microphone is off.") {
 
 async function startVoice() {
   if (startingVoice) return;
+  const attempt = ++voiceAttempt;
   startingVoice = true;
   receivedItems = new Set();
   voiceButton.setAttribute("aria-pressed", "true");
   voiceLabel.textContent = "Connecting…";
-  setStatus(voiceStatus, "Connecting Voice and checking catalogue access…");
+  setVoiceConnection("requesting", "Microphone");
+  setStatus(voiceStatus, "Requesting microphone access…");
+
+  let microphoneRequest;
+  let audioContextRequest;
   try {
-    const retailerPermissionGranted = await ensureRetailerPermission();
+    if (!navigator.mediaDevices?.getUserMedia)
+      throw new Error("Chrome cannot access the microphone in this panel.");
+    // Start both browser media requests inside the toolbar-button click gesture.
+    audioContext = new AudioContext({ sampleRate: 24000 });
+    audioContextRequest = audioContext.resume();
+    audioContextRequest.catch(() => {});
+    microphoneRequest = navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+  } catch (error) {
+    if (attempt === voiceAttempt)
+      closeVoice(microphonePermissionMessage(error));
+    return;
+  }
+
+  let acquiredStream;
+  try {
+    acquiredStream = await microphoneRequest;
+  } catch (error) {
+    if (attempt === voiceAttempt)
+      closeVoice(microphonePermissionMessage(error));
+    return;
+  }
+  if (attempt !== voiceAttempt) {
+    acquiredStream.getTracks().forEach((track) => track.stop());
+    return;
+  }
+  micStream = acquiredStream;
+
+  try {
+    await audioContextRequest;
+    if (audioContext?.state !== "running")
+      throw new Error("Chrome did not start audio playback.");
+    setVoiceConnection("connecting", "Connecting");
+    setStatus(voiceStatus, "Microphone allowed. Connecting to Voice…");
     const server = new URL(settings.server);
     if (!["localhost", "127.0.0.1", "[::1]"].includes(server.hostname))
       throw new Error(
         "Realtime Voice currently needs the local Needle server.",
       );
     const protocol = server.protocol === "https:" ? "wss:" : "ws:";
-    voiceSocket = new WebSocket(`${protocol}//${server.host}/ws/voice`);
-    voiceSocket.addEventListener("open", () => {
-      voiceSocket?.send(
+    const socket = new WebSocket(`${protocol}//${server.host}/ws/voice`);
+    voiceSocket = socket;
+    socket.addEventListener("open", () => {
+      if (attempt !== voiceAttempt || voiceSocket !== socket) return;
+      socket.send(
         JSON.stringify({ type: "needle.auth", token: settings.token || "" }),
       );
       voiceLabel.textContent = "Connecting…";
     });
-    voiceSocket.addEventListener("message", async (event) => {
+    socket.addEventListener("message", async (event) => {
+      if (attempt !== voiceAttempt || voiceSocket !== socket) return;
       let data;
       try {
         data = JSON.parse(event.data);
@@ -423,18 +507,33 @@ async function startVoice() {
         if (!sessionReady) {
           try {
             await beginCapture();
+            if (attempt !== voiceAttempt || voiceSocket !== socket) return;
+            startingVoice = false;
             sessionReady = true;
+            introPending = true;
             voiceLabel.textContent = "Stop voice";
             voiceButton.setAttribute("aria-pressed", "true");
-            if (!retailerPermissionGranted)
-              setStatus(
-                voiceStatus,
-                "Listening. Grant Woolworths and Coles access with a text search before asking Jev to search.",
-              );
+            setVoiceConnection("connected", "Connected");
+            setStatus(
+              voiceStatus,
+              "Connected. Voice is introducing itself; you can speak any time.",
+            );
+            socket.send(JSON.stringify(createVoiceIntroductionEvent()));
           } catch (error) {
-            closeVoice(`Microphone unavailable: ${error.message}`);
+            if (attempt === voiceAttempt)
+              closeVoice(
+                `Voice connected, but audio could not start: ${error.message}`,
+              );
           }
         }
+        return;
+      }
+      if (data.type === "response.done" && introPending) {
+        introPending = false;
+        setStatus(
+          voiceStatus,
+          "Connected and listening. Ask Voice to find a product or help update your list.",
+        );
         return;
       }
       if (
@@ -462,25 +561,75 @@ async function startVoice() {
           true,
         );
     });
-    voiceSocket.addEventListener("error", () =>
-      closeVoice(
-        "Voice cannot reach the local server. Start Needle and check its settings.",
-      ),
-    );
-    voiceSocket.addEventListener("close", () => {
-      if (voiceSocket) closeVoice("Voice connection closed.");
+    socket.addEventListener("error", () => {
+      if (attempt === voiceAttempt && voiceSocket === socket)
+        closeVoice(
+          "Voice cannot reach the local server. Start Needle and check its settings.",
+        );
+    });
+    socket.addEventListener("close", () => {
+      if (attempt === voiceAttempt && voiceSocket === socket)
+        closeVoice("Voice connection closed.");
     });
   } catch (error) {
-    closeVoice(`Voice could not start: ${error.message}`);
+    if (attempt === voiceAttempt)
+      closeVoice(`Voice could not connect: ${error.message}`);
   }
 }
 
 searchForm.addEventListener("submit", (event) => {
   event.preventDefault();
+  if (!queryInput.value.trim()) return;
+  // Request optional retailer access synchronously from this user action.
+  const permissionRequest = chrome.permissions.request({
+    origins: retailerOrigins,
+  });
   searchCatalogues(
     queryInput.value,
     retailerSearchTerm(queryInput.value) || queryInput.value,
+    permissionRequest,
   );
+});
+
+retailerAccessButton.addEventListener("click", () => {
+  // Chrome requires optional-permission requests to originate from a user action.
+  let permissionRequest;
+  try {
+    permissionRequest = chrome.permissions.request({
+      origins: retailerOrigins,
+    });
+  } catch {
+    setStatus(searchStatus, "Chrome could not request catalogue access.", true);
+    return;
+  }
+  Promise.resolve(permissionRequest)
+    .then(async (granted) => {
+      if (!granted) {
+        setStatus(
+          searchStatus,
+          "Catalogue access was not granted. Jev cannot search the retailer pages yet.",
+          true,
+        );
+        return;
+      }
+      retailerAccessButton.hidden = true;
+      const pending = pendingCatalogueSearch;
+      pendingCatalogueSearch = null;
+      if (pending)
+        await searchCatalogues(
+          pending.query,
+          pending.retailerQuery,
+          Promise.resolve(true),
+        );
+      else setStatus(searchStatus, "Jev can now search both catalogues.");
+    })
+    .catch(() =>
+      setStatus(
+        searchStatus,
+        "Chrome could not request catalogue access.",
+        true,
+      ),
+    );
 });
 
 $("#add-form").addEventListener("submit", (event) => {
@@ -547,3 +696,5 @@ chrome.storage.local
     };
     renderList();
   });
+
+updateRetailerAccessButton();

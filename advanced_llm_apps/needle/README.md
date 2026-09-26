@@ -66,7 +66,7 @@ No separate extension build is needed to load the source:
 2. Choose **Load unpacked** and select **`awesome-llm-apps/advanced_llm_apps/needle/extension/`** folder. This is the folder containing `manifest.json`. Do not select the repository root or a ZIP file.
 3. Pin Needle from Chrome’s puzzle-piece menu. The settings page opens on first installation; you can also right-click the icon and choose **Options**.
 4. Set **Needle server URL** to `http://127.0.0.1:4199`. Leave **Server access token** blank for the default local setup. Click **Save connection**.
-5. Open Needle from the toolbar. The first catalogue search asks permission to read Woolworths and Coles pages. Start Voice in the panel when you want to speak; Chrome will ask for microphone access.
+5. Open Needle from the toolbar. Use **Allow catalogue access** (or submit a text search) to let Jev read Woolworths and Coles pages. Start Voice when you want to speak; Chrome asks for microphone access immediately from that button click.
 
 The extension side panel stays open as you change tabs. Press **Cmd+Shift+Y** on macOS or **Ctrl+Shift+Y** elsewhere to open Needle’s original current-page meaning search. If the shortcut is already in use, assign one at `chrome://extensions/shortcuts`.
 
@@ -84,7 +84,7 @@ Product layouts change. If Jev reports no readable product cards, inspect the re
 
 ### Speak with Voice
 
-Choose **Start voice** and speak naturally. Voice replies aloud and its transcript appears in the panel. Jev separately searches the text transcript; it does not receive speech audio. Voice does not invent catalogue prices or change the list by itself.
+Choose **Start voice** and allow microphone access. Once the **Connected** badge appears, Voice gives a short introduction and explains how Jev and the shopping list work. Voice replies aloud and its transcript appears in the panel. Jev separately searches the text transcript; it does not receive speech audio. Voice does not invent catalogue prices or change the list by itself.
 
 ### Shopping list and notes
 
@@ -106,14 +106,16 @@ For a PDF with selectable text, copy the relevant text and use **Bring your own 
 
 ### Troubleshooting
 
-| What you see                                 | What to do                                                                                                      |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Cannot reach Needle                          | Start `npm run dev` and use `http://127.0.0.1:4199` as the extension's server URL. Keep that terminal running.  |
-| Jev key or credits error                     | Check `AI_GATEWAY_API_KEY` in `.env`, your Gateway account's model access and credits, then restart the server. |
-| Voice or transcript list updates unavailable | Check `OPENAI_API_KEY` in `.env`, then restart the local server.                                                |
-| Chrome cannot find the manifest              | Choose the `extension/` folder containing `manifest.json`. If using the download, unzip it first.               |
-| Changes do not appear                        | Reload Needle at `chrome://extensions`, then refresh the webpage.                                               |
-| No searchable text                           | Try a regular webpage. Built-in PDF viewers, browser settings pages, images and scanned text are unsupported.   |
+| What you see                                 | What to do                                                                                                                                                     |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cannot reach Needle                          | Start `npm run dev` and use `http://127.0.0.1:4199` as the extension's server URL. Keep that terminal running.                                                 |
+| Jev key or credits error                     | Check `AI_GATEWAY_API_KEY` in `.env`, your Gateway account's model access and credits, then restart the server.                                                |
+| Voice or transcript list updates unavailable | Check `OPENAI_API_KEY` in `.env`, then restart the local server.                                                                                               |
+| Microphone permission dismissed              | Allow the microphone on Chrome's prompt. If it no longer appears, open `chrome://settings/content/microphone`, allow Needle, then click **Start voice** again. |
+| Chrome shows a retailer reload banner        | Reload the Woolworths or Coles page once so Chrome applies the catalogue access you just granted.                                                              |
+| Chrome cannot find the manifest              | Choose the `extension/` folder containing `manifest.json`. If using the download, unzip it first.                                                              |
+| Changes do not appear                        | Reload Needle at `chrome://extensions`, then refresh the webpage.                                                                                              |
+| No searchable text                           | Try a regular webpage. Built-in PDF viewers, browser settings pages, images and scanned text are unsupported.                                                  |
 
 ## API Key and Connection Settings
 
@@ -160,7 +162,7 @@ needle/
 
 - Catalogue search reads visible product-card text only after you invoke a search and grant access to Woolworths and Coles. It sends the search text and captured passages to the configured backend, then to Jev through Vercel AI Gateway.
 - Page search runs only when you invoke it. It does not collect password/input values, browsing history, cookies, or screenshots.
-- When you start Voice, microphone audio is sent through the local Needle server to the OpenAI Realtime API. Its transcript is shown in the panel and passed as text for Jev search and GPT-5.4-mini list-action interpretation.
+- When you start Voice, the microphone prompt is requested directly from your click. Once connected, Voice speaks an introduction; microphone audio then travels through the local Needle server to the OpenAI Realtime API. Its transcript is shown in the panel and passed as text for Jev search and GPT-5.4-mini list-action interpretation.
 - The backend does not intentionally persist or log page text or transcripts. Hosting and model-provider policies still apply. The extension stores the shopping list, notes, server URL and app access token in Chrome local storage.
 - Up to **160 passages / 60,000 characters**, with at most **2,200 characters per passage**. The extension skips oversized passages and reports omissions. Very long pages may only be partially searched. Pasted text is split into bounded passages.
 - Chrome system pages, the Chrome Web Store, built-in PDF viewers, scanned text, cross-origin frames and shadow-root content are unsupported. Dynamic page changes may invalidate results; search again.
@@ -179,7 +181,7 @@ Stop the dev server before running preview on the same port, or choose another `
 
 `npm run package:extension` produces:
 
-- `artifacts/needle-extension-v1.2.0.zip` for release attachment.
+- `artifacts/needle-extension-v1.2.1.zip` for release attachment.
 - `public/needle-extension.zip` for the app’s download link; production builds copy it to `dist/`.
 
 ZIP packaging uses an explicit file allowlist and does not include the backend, `.env`, dependencies or development output. Build artifacts are not committed.
