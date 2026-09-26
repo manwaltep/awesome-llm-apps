@@ -169,6 +169,10 @@ function candidateItemName(text) {
     previous = item;
     item = item
       .replace(
+        /^(?:cool|okay|ok|great|sure|yes|yeah|yep|yup|alright|right|well)[,;:.!?]*\s+(?=(?:please\s+)?(?:add|put|include|get|grab|buy|pick\s+up)\b)/i,
+        "",
+      )
+      .replace(
         /^(?:hey\s+)?(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:add|put|include|get|grab|buy|pick\s+up|i\s+(?:want|need|found|got|saw)|i(?:'m| am)\s+looking\s+at|looking\s+at|i(?:'d| would)\s+like)\s+/i,
         "",
       )

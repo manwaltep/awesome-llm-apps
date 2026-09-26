@@ -472,11 +472,69 @@ textarea::placeholder {
   color: #a5262b;
   background: #fbecee;
 }
+.edit-item {
+  flex: none;
+  padding: 4px 5px;
+  border: 0;
+  border-radius: 7px;
+  color: #49684c;
+  background: transparent;
+  font-size: 10px;
+}
+.edit-item:hover {
+  background: #eaf2dc;
+}
 .list-row.checked .item-name {
   color: #89938b;
   text-decoration: line-through;
 }
+.list-row-editing {
+  align-items: stretch;
+}
+.list-edit {
+  display: grid;
+  flex: 1 1 100%;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+  padding: 5px 0;
+}
+.list-edit input,
+.list-edit select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid #dce4d9;
+  border-radius: 9px;
+  color: var(--ink);
+  background: var(--white);
+  font-size: 11px;
+}
+.list-edit-name,
+.list-edit-actions {
+  grid-column: 1 / -1;
+}
+.list-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.list-edit-actions button {
+  padding: 6px 10px;
+  border: 1px solid #cfddc4;
+  border-radius: 8px;
+  font-size: 10px;
+}
+.list-edit-cancel {
+  color: #536457;
+  background: var(--white);
+}
+.list-edit-save {
+  color: var(--white);
+  background: var(--forest);
+}
 .remove-item {
+  flex: none;
   width: 26px;
   height: 26px;
   border: 0;

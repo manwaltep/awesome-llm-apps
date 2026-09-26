@@ -46,6 +46,7 @@ const retailerOrigins = [
 ];
 
 let shoppingList = [];
+let editingListItemId = null;
 let notes = "";
 let settings = { server: "http://127.0.0.1:4199", token: "" };
 let savingNotes;
@@ -96,6 +97,84 @@ function addTranscript(speaker, text) {
   transcriptNode.scrollTop = transcriptNode.scrollHeight;
 }
 
+function createListEditForm(item) {
+  const form = document.createElement("form");
+  form.className = "list-edit";
+
+  const name = document.createElement("input");
+  name.className = "list-edit-name";
+  name.type = "text";
+  name.maxLength = 100;
+  name.required = true;
+  name.value = item.name;
+  name.setAttribute("aria-label", "Item name");
+
+  const price = document.createElement("input");
+  price.type = "text";
+  price.maxLength = 24;
+  price.value = item.price || "";
+  price.placeholder = "Price";
+  price.setAttribute("aria-label", "Item price");
+
+  const store = document.createElement("select");
+  store.setAttribute("aria-label", "Retailer");
+  for (const [value, label] of [
+    ["", "No retailer"],
+    ["Coles", "Coles"],
+    ["Woolworths", "Woolworths"],
+  ]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    store.append(option);
+  }
+  store.value = item.store || "";
+
+  const actions = document.createElement("div");
+  actions.className = "list-edit-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "list-edit-cancel";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", () => {
+    editingListItemId = null;
+    renderList();
+  });
+  const save = document.createElement("button");
+  save.type = "submit";
+  save.className = "list-edit-save";
+  save.textContent = "Save";
+  actions.append(cancel, save);
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const cleanName = name.value.trim().replace(/\s+/g, " ");
+    if (!cleanName) {
+      actionNote.textContent = "Enter an item name before saving.";
+      name.focus();
+      return;
+    }
+    const cleanPrice = price.value.trim();
+    const selectedStore = store.value;
+    shoppingList = shoppingList.map((entry) => {
+      if (entry.id !== item.id) return entry;
+      const updated = { ...entry, name: cleanName };
+      if (cleanPrice) updated.price = cleanPrice;
+      else delete updated.price;
+      if (selectedStore) updated.store = selectedStore;
+      else delete updated.store;
+      return updated;
+    });
+    editingListItemId = null;
+    await chrome.storage.local.set({ shoppingList });
+    actionNote.textContent = `You updated ${cleanName}.`;
+    renderList();
+  });
+
+  form.append(name, price, store, actions);
+  return form;
+}
+
 function renderList() {
   listNode.replaceChildren();
   const pending = shoppingList.filter((item) => !item.checked).length;
@@ -109,6 +188,12 @@ function renderList() {
   }
   for (const item of shoppingList) {
     const row = document.createElement("li");
+    if (editingListItemId === item.id) {
+      row.className = "list-row list-row-editing";
+      row.append(createListEditForm(item));
+      listNode.append(row);
+      continue;
+    }
     row.className = `list-row${item.checked ? " checked" : ""}`;
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
@@ -143,6 +228,15 @@ function renderList() {
       store.textContent = item.store;
       row.append(store);
     }
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "edit-item";
+    edit.setAttribute("aria-label", `Edit ${item.name}`);
+    edit.textContent = "Edit";
+    edit.addEventListener("click", () => {
+      editingListItemId = item.id;
+      renderList();
+    });
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "remove-item";
@@ -154,7 +248,7 @@ function renderList() {
       actionNote.textContent = `You removed ${item.name} from the list.`;
       renderList();
     });
-    row.append(remove);
+    row.append(edit, remove);
     listNode.append(row);
   }
 }
