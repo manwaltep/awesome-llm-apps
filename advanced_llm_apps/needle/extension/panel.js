@@ -26,6 +26,8 @@ import {
 const $ = (selector) => document.querySelector(selector);
 const searchForm = $("#search-form");
 const queryInput = $("#query");
+const storeScopeButtons = [...document.querySelectorAll("[data-store-scope]")];
+const scopeHelp = $("#scope-help");
 const searchStatus = $("#search-status");
 const offersNode = $("#offers");
 const retailerAccessButton = $("#retailer-access");
@@ -38,15 +40,14 @@ const transcriptNode = $("#transcript");
 const listNode = $("#shopping-list");
 const actionNote = $("#action-note");
 const notesInput = $("#notes");
-const retailerOrigins = [
-  "https://woolworths.com.au/*",
-  "https://*.woolworths.com.au/*",
-  "https://coles.com.au/*",
-  "https://*.coles.com.au/*",
-];
+const retailerOrigins = {
+  woolworths: ["https://woolworths.com.au/*", "https://*.woolworths.com.au/*"],
+  coles: ["https://coles.com.au/*", "https://*.coles.com.au/*"],
+};
 
 let shoppingList = [];
 let editingListItemId = null;
+let retailerScope = "auto";
 let notes = "";
 let settings = { server: "http://127.0.0.1:4199", token: "" };
 let savingNotes;
@@ -75,6 +76,46 @@ let awaitingSearchStores = [];
 function setStatus(node, message, error = false) {
   node.textContent = message;
   node.classList.toggle("error", Boolean(error));
+}
+
+function storesForScope(requestedStores, query) {
+  if (retailerScope === "coles") return ["coles"];
+  if (retailerScope === "woolworths") return ["woolworths"];
+  if (retailerScope === "both") return ["woolworths", "coles"];
+  return requestedStores?.length
+    ? requestedStores
+    : retailersFromRequest(query);
+}
+
+function originsForStores(stores) {
+  return [
+    ...new Set(
+      (Array.isArray(stores) ? stores : []).flatMap(
+        (store) => retailerOrigins[store] || [],
+      ),
+    ),
+  ];
+}
+
+function setRetailerScope(scope, persist = true) {
+  retailerScope = ["auto", "both", "coles", "woolworths"].includes(scope)
+    ? scope
+    : "auto";
+  for (const button of storeScopeButtons)
+    button.setAttribute(
+      "aria-pressed",
+      String(button.dataset.storeScope === retailerScope),
+    );
+  scopeHelp.textContent =
+    retailerScope === "auto"
+      ? "Auto follows a retailer named in your request, or searches both."
+      : retailerScope === "both"
+        ? "Searches both, regardless of retailer named."
+        : retailerScope === "coles"
+          ? "Searches Coles only, regardless of retailer named."
+          : "Searches Woolworths only, regardless of retailer named.";
+  if (persist) chrome.storage.local.set({ retailerScope });
+  updateRetailerAccessButton();
 }
 
 function setVoiceConnection(state, label) {
@@ -303,9 +344,7 @@ function addCatalogueOfferToList(offer) {
   if (!offer) return false;
   const store = offer.store === "coles" ? "Coles" : "Woolworths";
   const price =
-    offer.price ||
-    offer.detail?.match(/\$\s?\d+(?:[.,]\d{1,2})?/)?.[0] ||
-    "";
+    offer.price || offer.detail?.match(/\$\s?\d+(?:[.,]\d{1,2})?/)?.[0] || "";
   return addManualItem(offer.title, { store, price });
 }
 
@@ -332,10 +371,7 @@ function preferredOfferForTranscript(transcript, offers) {
     ? choices.filter((offer) => requestedStores.includes(offer.store))
     : choices;
   if (!scopedChoices.length) return null;
-  const resolved = resolveVoiceCatalogueConfirmation(
-    transcript,
-    scopedChoices,
-  );
+  const resolved = resolveVoiceCatalogueConfirmation(transcript, scopedChoices);
   if (resolved.kind === "accepted") return resolved.offer;
   if (
     resolved.kind === "ambiguous" ||
@@ -446,7 +482,7 @@ function renderOffers(offers, productsSeen = 0) {
 async function updateRetailerAccessButton() {
   try {
     retailerAccessButton.hidden = await chrome.permissions.contains({
-      origins: retailerOrigins,
+      origins: originsForStores(storesForScope(["woolworths", "coles"], "")),
     });
   } catch {
     retailerAccessButton.hidden = false;
@@ -479,10 +515,11 @@ async function searchCatalogues(
   const cleanRetailerQuery = String(retailerQuery || clean).trim();
   setStatus(searchStatus, "Checking catalogue access…");
   let granted = false;
+  const requiredOrigins = originsForStores(requestedStores);
   try {
     granted = permissionRequest
       ? await permissionRequest
-      : await chrome.permissions.contains({ origins: retailerOrigins });
+      : await chrome.permissions.contains({ origins: requiredOrigins });
   } catch {
     granted = false;
   }
@@ -631,14 +668,20 @@ async function applyVoiceTranscript(text, itemId) {
       visibleCatalogueOffers,
     );
     if (selection.kind === "accepted" || selection.kind === "ambiguous") {
-      setStatus(searchStatus, "Jev is matching your choice to the visible offers…");
+      setStatus(
+        searchStatus,
+        "Jev is matching your choice to the visible offers…",
+      );
       const result = await chrome.runtime
         .sendMessage({
           type: "CATALOGUE_RESOLVE_VISIBLE",
           query: clean,
           offers: visibleCatalogueOffers,
         })
-        .catch(() => ({ matches: [], error: "Jev could not reach the matcher." }));
+        .catch(() => ({
+          matches: [],
+          error: "Jev could not reach the matcher.",
+        }));
       const jevBest = bestJevOffer(result?.matches, visibleCatalogueOffers);
       const selectedOffer =
         jevBest ||
@@ -745,11 +788,12 @@ async function applyVoiceTranscript(text, itemId) {
   if (catalogueQuery) {
     const retailQuery = retailerSearchTerm(catalogueQuery) || catalogueQuery;
     const namesRetailer = /\b(?:woolworths|woolies|coles)\b/i.test(clean);
-    const requestedStores = namesRetailer
+    const inferredStores = namesRetailer
       ? retailersFromRequest(clean)
       : wasAwaitingSearchTerms && followupStores.length
         ? followupStores
         : retailersFromRequest(clean);
+    const requestedStores = storesForScope(inferredStores, clean);
     await searchCatalogues(clean, retailQuery, null, requestedStores, {
       voiceTurnId,
     });
@@ -1055,18 +1099,27 @@ async function startVoice() {
   }
 }
 
+for (const button of storeScopeButtons)
+  button.addEventListener("click", () =>
+    setRetailerScope(button.dataset.storeScope),
+  );
+
 searchForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (!queryInput.value.trim()) return;
+  const requestedStores = storesForScope(
+    retailersFromRequest(queryInput.value),
+    queryInput.value,
+  );
   // Request optional retailer access synchronously from this user action.
   const permissionRequest = chrome.permissions.request({
-    origins: retailerOrigins,
+    origins: originsForStores(requestedStores),
   });
   searchCatalogues(
     queryInput.value,
     retailerSearchTerm(queryInput.value) || queryInput.value,
     permissionRequest,
-    retailersFromRequest(queryInput.value),
+    requestedStores,
   );
 });
 
@@ -1074,8 +1127,11 @@ retailerAccessButton.addEventListener("click", () => {
   // Chrome requires optional-permission requests to originate from a user action.
   let permissionRequest;
   try {
+    const pending = pendingCatalogueSearch;
+    const stores =
+      pending?.stores || storesForScope(["woolworths", "coles"], "");
     permissionRequest = chrome.permissions.request({
-      origins: retailerOrigins,
+      origins: originsForStores(stores),
     });
   } catch {
     setStatus(searchStatus, "Chrome could not request catalogue access.", true);
@@ -1104,7 +1160,8 @@ retailerAccessButton.addEventListener("click", () => {
             voiceTurnId: pending.voiceTurnId,
           },
         );
-      else setStatus(searchStatus, "Jev can now search both catalogues.");
+      else
+        setStatus(searchStatus, "Jev can now search the selected catalogues.");
     })
     .catch(() =>
       setStatus(
@@ -1179,10 +1236,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
     notes = changes.shoppingNotes.newValue || "";
     if (notesInput.value !== notes) notesInput.value = notes;
   }
+  if (changes.retailerScope)
+    setRetailerScope(changes.retailerScope.newValue, false);
 });
 
 chrome.storage.local
-  .get(["shoppingList", "shoppingNotes", "server", "token"])
+  .get(["shoppingList", "shoppingNotes", "server", "token", "retailerScope"])
   .then((stored) => {
     shoppingList = Array.isArray(stored.shoppingList)
       ? stored.shoppingList
@@ -1193,7 +1252,9 @@ chrome.storage.local
       server: stored.server || settings.server,
       token: stored.token || "",
     };
+    setRetailerScope(stored.retailerScope || "auto", false);
     renderList();
   });
 
+setRetailerScope(retailerScope, false);
 updateRetailerAccessButton();

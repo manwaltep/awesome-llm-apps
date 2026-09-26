@@ -31,7 +31,7 @@
         </div>
         <form id="search-form" class="search-form">
           <label class="sr-only" for="query"
-            >What should Jev find in Woolworths and Coles?</label
+            >What should Jev find in the selected catalogues?</label
           >
           <input
             id="query"
@@ -43,13 +43,41 @@
           <button
             class="search-button"
             type="submit"
-            aria-label="Search both catalogues"
+            aria-label="Search selected catalogues"
           >
             ↗
           </button>
         </form>
+        <div class="store-scope-row">
+          <span class="store-scope-label">Search in</span>
+          <div
+            class="store-scope"
+            role="group"
+            aria-label="Retailer search scope"
+          >
+            <button type="button" data-store-scope="auto" aria-pressed="true">
+              Auto
+            </button>
+            <button type="button" data-store-scope="both" aria-pressed="false">
+              Both
+            </button>
+            <button type="button" data-store-scope="coles" aria-pressed="false">
+              Coles
+            </button>
+            <button
+              type="button"
+              data-store-scope="woolworths"
+              aria-pressed="false"
+            >
+              Woolworths
+            </button>
+          </div>
+        </div>
+        <p class="scope-help" id="scope-help">
+          Auto follows a retailer named in your request, or searches both.
+        </p>
         <p class="subtle">
-          Searches official Woolworths and Coles pages in separate tabs.
+          Jev searches official catalogue pages in separate tabs.
         </p>
         <button
           class="permission-button"

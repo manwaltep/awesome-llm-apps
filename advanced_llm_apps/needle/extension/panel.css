@@ -150,6 +150,46 @@ textarea::placeholder {
   background: var(--forest);
   font-size: 21px;
 }
+.store-scope-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+  margin-top: 9px;
+}
+.store-scope-label {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+.store-scope {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #edf1e9;
+}
+.store-scope button {
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 7px;
+  color: #56685a;
+  background: transparent;
+  font-size: 9px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.store-scope button[aria-pressed="true"] {
+  color: var(--white);
+  background: var(--forest);
+}
+.scope-help {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+}
 .subtle {
   margin: 7px 0 0;
   color: var(--muted);
