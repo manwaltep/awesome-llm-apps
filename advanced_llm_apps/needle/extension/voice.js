@@ -127,12 +127,18 @@ export function catalogueQueryForVoiceTurn({
   const text = String(transcript || "").trim();
   if (!text || listOnly || classifyBareVoiceReply(text)) return "";
 
-  const proposed = String(proposedQuery || "").trim();
+  const stripConversationalLead = (value) =>
+    String(value || "")
+      .trim()
+      .replace(
+        /^(?:(?:no|nope|nah|yes|yeah|yep|yup|sure|okay|ok|alright|well)\s*[,;:.!?]\s*)+/i,
+        "",
+      )
+      .trim();
+  const proposed = stripConversationalLead(proposedQuery);
   if (proposed && !classifyBareVoiceReply(proposed)) return proposed;
 
-  const fallback = text
-    .replace(/^(?:yes|yeah|yep|yup|sure|okay|ok|alright|go ahead)[,\s]+/i, "")
-    .trim();
+  const fallback = stripConversationalLead(text);
   if (!fallback || classifyBareVoiceReply(fallback) || listOnly) return "";
   if (
     awaitingSearchTerms ||

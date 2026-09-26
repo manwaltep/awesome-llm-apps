@@ -82,6 +82,10 @@ export function retailerSearchTerm(query) {
   return String(query || "")
     .trim()
     .replace(
+      /^(?:(?:no|nope|nah|yes|yeah|yep|yup|sure|okay|ok|alright)\s*[,;:.!?]\s*)+/i,
+      "",
+    )
+    .replace(
       /^(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:find(?: me)?|search(?: for)?|look(?:ing)?(?: up)?(?: for)?|show(?: me)?|compare|check(?: for)?|(?:get|grab)(?:\s+me)?|look up)\s+/i,
       "",
     )
@@ -144,63 +148,93 @@ export function extractRetailerPage() {
   const normalize = (text) => (text || "").replace(/\s+/g, " ").trim();
   const titleSelectors =
     "h2,h3,h4,[data-testid*='title'],[class*='product-title'],[class*='ProductTitle']";
-  const cardSelectors = [
-    "main article",
-    "main [data-testid*='product']",
-    "main [data-testid*='Product']",
-    "main [class*='productTile']",
-    "main [class*='ProductTile']",
-    "main [class*='product-card']",
-    "main [class*='ProductCard']",
-    "main [class*='productCard']",
-  ].join(",");
-  const productLink = (element) =>
-    [...element.querySelectorAll("a[href]")].find((link) => {
-      try {
-        const url = new URL(link.href, location.href);
-        return (
-          url.hostname === location.hostname &&
-          /product|item/i.test(`${url.pathname} ${url.search}`)
-        );
-      } catch {
-        return false;
+  const isProductLink = (link) => {
+    try {
+      const url = new URL(link.href, location.href);
+      return (
+        url.hostname === location.hostname &&
+        /product|item/i.test(`${url.pathname} ${url.search}`)
+      );
+    } catch {
+      return false;
+    }
+  };
+  const isMetaLine = (line) =>
+    /^(?:add to (?:cart|trolley)|save to list|view details|shop now|sold by\b)/i.test(
+      line,
+    ) ||
+    /(?:A?\$|\bAUD\s*)\s*\d/i.test(line) ||
+    /\b(?:save|half price|special|off)\b/i.test(line) ||
+    /^\d+(?:\.\d+)?\s*\/\s*\d+/i.test(line);
+  const findCard = (link) => {
+    let element = link;
+    for (let depth = 0; element && depth < 9; depth += 1) {
+      if (!visible(element)) {
+        element = element.parentElement;
+        continue;
       }
-    });
-  const candidates = [...document.querySelectorAll(cardSelectors)]
-    .filter(visible)
-    .filter((element) => {
       const text = normalize(element.innerText);
-      return text.length >= 8 && text.length <= 1000 && productLink(element);
-    })
-    .sort(
-      (a, b) => normalize(a.innerText).length - normalize(b.innerText).length,
-    );
-  const roots = candidates.filter(
-    (element) =>
-      !candidates.some((other) => other !== element && other.contains(element)),
-  );
+      if (text.length > 1000) break;
+      const hasPrice = /(?:A?\$|\bAUD\s*)\s*\d/i.test(text);
+      const hasAction =
+        /\badd to (?:cart|trolley)\b|\bsave to list\b/i.test(text);
+      const hasTitle =
+        [...element.querySelectorAll(titleSelectors)].some(
+          (heading) => normalize(heading.innerText).length > 2,
+        ) ||
+        normalize(link.innerText).length > 2 ||
+        normalize(element.querySelector("img[alt]")?.alt).length > 2;
+      if (text.length >= 12 && (hasPrice || hasAction) && hasTitle)
+        return element;
+      element = element.parentElement;
+    }
+    return null;
+  };
+  const links = [...document.querySelectorAll("a[href]")]
+    .filter(visible)
+    .filter(isProductLink);
   const entries = [];
-  for (const element of roots) {
-    const link = productLink(element);
+  const seen = new Set();
+  for (const link of links) {
+    const element = findCard(link);
+    if (!element) continue;
     const text = element.innerText || "";
     const lines = text
       .split(/\n+/)
       .map(normalize)
-      .filter(
-        (line) =>
-          line && !/^(?:add to trolley|add to cart|view details)$/i.test(line),
-      );
-    const heading = element.querySelector(titleSelectors);
-    const imageTitle = element.querySelector("img[alt]")?.alt;
+      .filter(Boolean);
+    const heading = [...element.querySelectorAll(titleSelectors)].find(
+      (candidate) => {
+        const value = normalize(candidate.innerText);
+        return value.length > 2 && !isMetaLine(value);
+      },
+    );
+    const linkText = normalize(link.innerText);
+    const imageTitle = normalize(element.querySelector("img[alt]")?.alt);
+    const descriptiveLines = lines.filter((line) => !isMetaLine(line));
+    const priceIndex = lines.findIndex((line) =>
+      /(?:A?\$|\bAUD\s*)\s*\d/i.test(line),
+    );
+    const afterPrice =
+      priceIndex >= 0
+        ? lines.slice(priceIndex + 1).filter((line) => !isMetaLine(line))
+        : [];
+    const fallbackTitleLines = afterPrice.length ? afterPrice : descriptiveLines;
     const title = normalize(
-      heading?.innerText || imageTitle || link?.innerText || lines[0],
+      heading?.innerText ||
+        (!isMetaLine(linkText) ? linkText : "") ||
+        imageTitle ||
+        fallbackTitleLines.join(" "),
     );
     if (!title || title.length > 180) continue;
+    const key = `${title.toLocaleLowerCase()}|${link.href}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     const detail = lines
       .filter((line) => line !== title)
       .join(" · ")
       .slice(0, 600);
-    entries.push({ title, detail, href: link?.href || location.href });
+    entries.push({ title, detail, href: link.href });
     if (entries.length >= 160) break;
   }
   return entries;
